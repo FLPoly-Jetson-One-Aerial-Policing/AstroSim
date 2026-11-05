@@ -38,6 +38,17 @@ RUN gz fuel download -u "https://fuel.gazebosim.org/1.0/OpenRobotics/models/X3 U
 WORKDIR /opt/astrosim
 COPY worlds/ /opt/astrosim/worlds/
 
+# Build the gateway into the image (gz-dependent targets only).
+COPY CMakeLists.txt /opt/astrosim/src/CMakeLists.txt
+COPY proto/ /opt/astrosim/src/proto/
+COPY gateway/ /opt/astrosim/src/gateway/
+COPY tests/ /opt/astrosim/src/tests/
+COPY tools/ /opt/astrosim/src/tools/
+RUN cmake -S /opt/astrosim/src -B /opt/astrosim/build -G Ninja -DASTROSIM_BUILD_GATEWAY=ON \
+ && cmake --build /opt/astrosim/build --target gateway bench_rtf \
+ && install -m755 /opt/astrosim/build/gateway /opt/astrosim/build/bench_rtf /usr/local/bin/
+COPY entrypoint.sh /opt/astrosim/entrypoint.sh
+
 EXPOSE 8765/udp
 
-CMD ["gz", "sim", "-s", "-r", "-v", "3", "/opt/astrosim/worlds/poc.sdf"]
+CMD ["/opt/astrosim/entrypoint.sh"]
