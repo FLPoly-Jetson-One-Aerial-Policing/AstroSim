@@ -117,7 +117,7 @@ Verify package names (`libgz-transport13-dev`, `libgz-msgs10-dev` for Harmonic; 
 - Throttle at zero on the ground: vehicle stays down, no negative altitude.
 
 ## Out of scope
-Jetson geometry/mass/inertia, eight-rotor model, coaxial effects, wind, battery, VR, real-airframe input, calibration, multi-host or Kubernetes-style orchestration, multiple concurrent sessions, authentication/encryption of the wire protocol, reliable delivery (UDP fire-and-forget is intentional; note the Fault-message implication in the results).
+Terrain/building meshes and lateral collisions (flat ground plane only; the results doc should note that mesh/heightmap collision performance, collision-proxy tooling and a scene-description message in the schema are open questions for the real product), Jetson geometry/mass/inertia, eight-rotor model, coaxial effects, wind, battery, VR, real-airframe input, calibration, multi-host or Kubernetes-style orchestration, multiple concurrent sessions, authentication/encryption of the wire protocol, reliable delivery (UDP fire-and-forget is intentional; note the Fault-message implication in the results).
 
 ## Verification (end to end)
 1. Host C++ build (`cmake` + `make`, raylib only; raylib is not installed yet, so `dnf install raylib-devel` if packaged, else `FetchContent`) produces the viewer and tools; `go build ./cmd/astrosim` in `orchestrator/` produces `astrosim`; `podman build` produces the engine image.
