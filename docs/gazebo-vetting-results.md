@@ -15,7 +15,7 @@ Environment: Fedora 44 on WSL2, podman 5.8 rootless, container Ubuntu 24.04, **g
 | Per-motor command injection | see below | works, with a caveat |
 | raylib viewer on host (WSLg) | window renders at 60 FPS target, states NO GATEWAY / ENGINE DOWN / CONNECTED, vehicle + HUD verified by screenshot against the live container | pass (rendering); keyboard flight untested (no way to inject keys headless) |
 | Gamepad input | `/dev/input` does not exist in this WSL2 instance, so raylib sees no gamepad; stick mapping verified by unit tests only (`tests/test_input.cpp`) | blocked on WSL2; needs usbipd-win passthrough or a Windows-side viewer |
-| Orchestrator | not done yet | pending |
+| Orchestrated bring-up / recovery / teardown | see Orchestrator section | pass |
 
 ## Motor-out spike
 
@@ -43,3 +43,28 @@ Environment: Fedora 44 on WSL2, podman 5.8 rootless, container Ubuntu 24.04, **g
 - At 60 Hz every number is quantized to the 16.7 ms state tick. Network + gateway cost is ~1 tick (<= 16.7 ms) worst case, ~2 ms with a fast tick. Port-forward overhead is not measurable at this resolution.
 - The remaining ~35-70 ms is the airframe's own response to a step (motor time constants 12.5/25 ms, controller `maximumLinearAcceleration` 2 m/s^2, detection threshold), not plumbing. The literal "first pose change < 50 ms" criterion mostly measures the plant and the chosen threshold; it should be reframed as "command applied by the engine < 50 ms" (pass) plus a separately reported plant response.
 - Implication for the real product: state rate is a tunable (a 60 Hz stream adds up to 16.7 ms of avoidable latency); consider sending State immediately on Control receipt or at a higher rate for the VR/airframe-in-loop case.
+
+## Orchestrator (`orchestrator/`, Go, `astrosim up|down|status`)
+
+Drives the `podman` CLI (attached `podman run`, so the child's lifetime is the container's) and the viewer; restart/backoff/teardown policy is a pure state machine (`supervisor/`) with unit tests; readiness uses the real wire protocol (`probe/`, `wire/`, golden vectors shared with the C++ tests). `go test ./...` green.
+
+Manual checklist, real podman + WSLg viewer:
+
+| Check | Result |
+| --- | --- |
+| `up` on a warm image: container started -> gateway sees Gazebo -> viewer launched | ~2-3 s |
+| `kill -9` viewer | restarted in 73 ms (first), 548 ms (second, 500 ms backoff); engine untouched |
+| `podman kill` engine while viewer runs | engine restarted and ready again in ~3 s; same viewer process kept running |
+| Viewer crash loop (3 crashes in 30 s) | gives up, tears down, exit 1 |
+| Window close (viewer exit 0) | clean teardown, exit 0 |
+| SIGTERM to `astrosim` | exits in ~0.4 s; no container, viewer or gz left |
+| SIGKILL to `astrosim` | viewer and container still die (child `Pdeathsig` -> podman stops the container); lock is released; next `up` works |
+| `up` without display env | fails fast with a clear message (exit 1); `--no-display` runs engine only |
+| Second `up` while one runs | refused (flock lock + pid); `status` and `down` work (`down` ~0.5 s) |
+| Engine never ready (`--ready-timeout 1s`) | log tail printed, teardown, exit 1 |
+
+Notes / what a real session service would need:
+- Used the CLI + process groups; podman's REST socket would avoid CLI latency and give events (container die/health) instead of watching the attached process.
+- The viewer is restarted blindly; it reconnects by itself because the UDP link is stateless (any Control re-registers it with the gateway).
+- Stale-container replacement (`podman rm -f` before each start) was implemented but not hit in testing because Pdeathsig cleans up even on SIGKILL.
+- Not covered: multiple concurrent sessions, remote hosts, auth.

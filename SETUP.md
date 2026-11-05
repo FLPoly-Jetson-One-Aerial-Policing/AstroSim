@@ -33,6 +33,16 @@ Host build and tests:
     cmake --build build/host
     ctest --test-dir build/host
 
+Orchestrator (Go):
+
+    (cd orchestrator && go test ./... && go build -o ../build/astrosim ./cmd/astrosim)
+
+Run everything (container + viewer, supervised; Ctrl-C or closing the window stops it all):
+
+    build/astrosim up            # add --no-display for engine only, --tick 500 for a faster state stream
+    build/astrosim status
+    build/astrosim down
+
 Container-side targets (gz-dependent, e.g. `bench_rtf`), built inside the image with the source bind-mounted:
 
     podman run --rm -v "$PWD":/src:Z -w /src astrosim-engine:dev \
