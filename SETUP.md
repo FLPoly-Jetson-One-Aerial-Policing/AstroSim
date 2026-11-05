@@ -12,14 +12,16 @@ Versions below are what the PoC was developed with.
 | ninja | build generator | 1.13 | `sudo dnf install ninja-build` |
 | git | source control | 2.55 | `sudo dnf install git` |
 | Go | orchestrator (`orchestrator/`) | 1.26 | `sudo dnf install golang` |
-| raylib + headers | viewer (`viewer`, built when raylib is found) | 5.5 | `sudo dnf install raylib-devel` |
+| raylib 5.5 (viewer) | window, 3D view | use an installed one, else CMake builds 5.5 from source (`-DASTROSIM_RAYLIB=AUTO\|SYSTEM\|FETCH\|OFF`) | see below |
+| X11 + OpenGL + ALSA dev headers | only for the build-from-source raylib fallback | per the [raylib wiki](https://github.com/raysan5/raylib/wiki/Working-on-GNU-Linux) | `sudo dnf install alsa-lib-devel mesa-libGL-devel libX11-devel libXrandr-devel libXi-devel libXcursor-devel libXinerama-devel libatomic` |
 | display (WSLg or X11/Wayland) | viewer window | n/a | WSL2 provides WSLg; native Linux needs a desktop session |
 
 Not needed on the host: Gazebo, gz-transport, gz-msgs, Python (everything gz-related is in the container).
 
 `./build.sh --deps` installs these for you on dnf, apt or pacman (it uses sudo; `--dry-run` shows the commands first), and `./build.sh` then builds everything. The manual one-liner for Fedora:
 
-    sudo dnf install podman gcc-c++ cmake ninja-build git golang raylib-devel
+    sudo dnf install podman gcc-c++ cmake ninja-build git golang pkgconf-pkg-config \
+      alsa-lib-devel mesa-libGL-devel libX11-devel libXrandr-devel libXi-devel libXcursor-devel libXinerama-devel libatomic
 
 ## Build and test
 

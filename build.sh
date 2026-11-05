@@ -6,19 +6,21 @@
 #   ./build.sh --deps --dry-run   print the install command instead of running it
 #   ./build.sh --pm apt        override package-manager detection (dnf | apt | pacman)
 #   ./build.sh --no-image      skip the engine container image build
+#   ./build.sh --raylib MODE   AUTO (default: installed raylib, else build 5.5 from source) | SYSTEM | FETCH | OFF
 #
 # Outputs: build/host/{viewer,climb,latency,...}, build/astrosim, image astrosim-engine:dev
 set -euo pipefail
 cd "$(dirname "$0")"
 
-DEPS=0 DRY=0 IMAGE=1 PM=""
+DEPS=0 DRY=0 IMAGE=1 PM="" RAYLIB=AUTO
 while (($#)); do
   case "$1" in
     --deps) DEPS=1 ;;
     --dry-run) DRY=1 ;;
     --no-image) IMAGE=0 ;;
     --pm) PM="${2:-}"; shift ;;
-    -h|--help) sed -n '2,11p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    --raylib) RAYLIB="${2:-}"; shift ;;
+    -h|--help) sed -n '2,12p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) echo "unknown option: $1 (see --help)" >&2; exit 2 ;;
   esac
   shift
@@ -40,20 +42,22 @@ packages_core() {
     *) return 1 ;;
   esac
 }
-# The viewer only: if this package does not exist on your distro release, the viewer is skipped.
-package_raylib() {
+# Build dependencies for raylib from source, X11 backend. Taken from the raylib wiki
+# (https://github.com/raysan5/raylib/wiki/Working-on-GNU-Linux); Wayland packages omitted (experimental, off by default).
+# Not needed if you only use an installed raylib (--raylib SYSTEM), but the default AUTO mode may fall back to building it.
+packages_gui() {
   case "$1" in
-    dnf) echo raylib-devel ;;
-    apt) echo libraylib-dev ;;
-    pacman) echo raylib ;;
+    dnf)    echo alsa-lib-devel mesa-libGL-devel libX11-devel libXrandr-devel libXi-devel libXcursor-devel libXinerama-devel libatomic ;;
+    apt)    echo libasound2-dev libx11-dev libxrandr-dev libxi-dev libgl1-mesa-dev libglu1-mesa-dev libxcursor-dev libxinerama-dev ;;
+    pacman) echo alsa-lib mesa libx11 libxrandr libxi libxcursor libxinerama ;;
   esac
 }
 
 install_deps() {
   [[ -n "$PM" ]] || { echo "no supported package manager found (dnf, apt, pacman); install manually, see SETUP.md" >&2; exit 1; }
-  local core raylib
+  local core gui
   core=$(packages_core "$PM") || { echo "unsupported package manager: $PM (want dnf, apt or pacman)" >&2; exit 2; }
-  raylib=$(package_raylib "$PM")
+  gui=$(packages_gui "$PM")
 
   local sudo=""
   if ((EUID != 0)); then
@@ -72,7 +76,7 @@ install_deps() {
   # shellcheck disable=SC2086
   run "${install[@]}" $core
   # shellcheck disable=SC2086
-  run "${install[@]}" $raylib || echo "warning: could not install $raylib; the viewer will not be built (see SETUP.md)" >&2
+  run "${install[@]}" $gui
 }
 
 ((DEPS)) && install_deps
@@ -90,9 +94,9 @@ gen=()
 if command -v ninja >/dev/null; then gen=(-G Ninja); else echo "note: ninja not found, using the default generator"; fi
 
 echo "== C++ (host)"
-cmake -S . -B build/host "${gen[@]}" -DCMAKE_BUILD_TYPE=Release
+cmake -S . -B build/host "${gen[@]}" -DCMAKE_BUILD_TYPE=Release -DASTROSIM_RAYLIB="$RAYLIB"
 cmake --build build/host
-[[ -x build/host/viewer ]] || echo "note: viewer not built (raylib not found); engine, tools and tests are unaffected"
+[[ -x build/host/viewer ]] || echo "note: viewer not built (--raylib $RAYLIB found no raylib); engine, tools and tests are unaffected"
 
 echo "== Go orchestrator"
 (cd orchestrator && go build -o ../build/astrosim ./cmd/astrosim)
