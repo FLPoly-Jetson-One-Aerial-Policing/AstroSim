@@ -18,6 +18,7 @@ add_test(NAME wire COMMAND test_wire)
 
 add_executable(test_input tests/test_input.cpp)
 target_link_libraries(test_input astrosim_proto)
+target_include_directories(test_input PRIVATE app)
 add_test(NAME input COMMAND test_input)
 
 find_package(PkgConfig QUIET)
