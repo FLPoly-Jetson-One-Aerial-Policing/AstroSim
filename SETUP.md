@@ -23,6 +23,12 @@ One-liner:
 
 ## Build and test
 
+All suites in one go (C++ ctest, Go vet/test; `--integration` also starts the container and runs the scripted climb):
+
+    ./test.sh [--integration]
+
+Individually:
+
 Engine image (Ubuntu 24.04, gz Jetty; pulls ~1 GB, downloads the X3 model from Fuel at build time):
 
     podman build -t astrosim-engine:dev -f Containerfile .
