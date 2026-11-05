@@ -79,7 +79,7 @@ int main(int argc, char** argv) {
     } else {
       Keys k;
       k.w = IsKeyDown(KEY_W); k.s = IsKeyDown(KEY_S); k.a = IsKeyDown(KEY_A); k.d = IsKeyDown(KEY_D);
-      k.q = IsKeyDown(KEY_Q); k.e = IsKeyDown(KEY_E); k.up = IsKeyDown(KEY_UP); k.down = IsKeyDown(KEY_DOWN);
+      k.up = IsKeyDown(KEY_UP); k.down = IsKeyDown(KEY_DOWN); k.left = IsKeyDown(KEY_LEFT); k.right = IsKeyDown(KEY_RIGHT);
       ctl = mapKeys(k);
       source = "keyboard";
     }
@@ -127,7 +127,7 @@ int main(int argc, char** argv) {
     DrawText(TextFormat("thr %+.2f yaw %+.2f", ctl.throttle, ctl.yaw), 20, 172, 16, LIGHTGRAY);
     DrawText(TextFormat("pit %+.2f rol %+.2f", ctl.pitch, ctl.roll), 190, 172, 16, LIGHTGRAY);
     if (!engine) DrawText(alive ? "ENGINE DOWN - holding" : "waiting for gateway...", 400, 230, 36, sc);
-    DrawText(pad >= 0 ? "L: throttle/yaw   R: pitch/roll" : "W/S pitch  A/D roll  Q/E yaw  Up/Down throttle", 20, 690, 18, WHITE);
+    DrawText(pad >= 0 ? "L: throttle/yaw   R: pitch/roll" : "WASD: throttle/yaw   Arrows: pitch/roll", 20, 690, 18, WHITE);
     EndDrawing();
 
     if (maxFrames && ++frame >= maxFrames) {

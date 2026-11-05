@@ -28,13 +28,14 @@ inline ControlMsg mapGamepad(float lx, float ly, float rx, float ry) {
 }
 
 struct Keys {
-  bool w = false, s = false, a = false, d = false, q = false, e = false, up = false, down = false;
+  bool w = false, a = false, s = false, d = false;              // "left stick": W/S throttle, A/D yaw
+  bool up = false, left = false, down = false, right = false;  // "right stick": up/down pitch, left/right roll
 };
 
-// W/S pitch, A/D roll, Q/E yaw (E clockwise), Up/Down throttle.
+// Same layout as the gamepad: WASD = left stick (throttle/yaw), arrows = right stick (pitch/roll).
 inline ControlMsg mapKeys(const Keys& k) {
   auto axis = [](bool pos, bool neg) { return (pos ? 1.f : 0.f) - (neg ? 1.f : 0.f); };
-  return {axis(k.d, k.a), axis(k.w, k.s), axis(k.e, k.q), axis(k.up, k.down)};
+  return {axis(k.right, k.left), axis(k.up, k.down), axis(k.d, k.a), axis(k.w, k.s)};  // roll, pitch, yaw, throttle
 }
 
 }  // namespace astrosim

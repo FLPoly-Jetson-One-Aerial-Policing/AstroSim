@@ -48,15 +48,21 @@ int main() {
   c = mapGamepad(nan, 0.5f, inf, -inf);
   CHECK(c.roll == 0 && c.pitch == 0 && c.yaw == 0 && c.throttle == 0);
 
-  // keyboard
+  // keyboard: WASD = left stick (throttle/yaw), arrows = right stick (pitch/roll)
   Keys k;
   auto kc = mapKeys(k); CHECK(kc.roll == 0 && kc.pitch == 0 && kc.yaw == 0 && kc.throttle == 0);
-  k.w = true; k.d = true; k.e = true; k.up = true;
-  kc = mapKeys(k); CHECK(kc.pitch == 1 && kc.roll == 1 && kc.yaw == 1 && kc.throttle == 1);
-  k = {}; k.s = true; k.a = true; k.q = true; k.down = true;
-  kc = mapKeys(k); CHECK(kc.pitch == -1 && kc.roll == -1 && kc.yaw == -1 && kc.throttle == -1);
-  k = {}; k.w = k.s = true;  // opposing keys cancel
-  kc = mapKeys(k); CHECK(kc.pitch == 0);
+  k.w = true; kc = mapKeys(k); CHECK(kc.throttle == 1 && kc.yaw == 0 && kc.pitch == 0 && kc.roll == 0);
+  k = {}; k.s = true; kc = mapKeys(k); CHECK(kc.throttle == -1 && kc.pitch == 0);
+  k = {}; k.d = true; kc = mapKeys(k); CHECK(kc.yaw == 1 && kc.roll == 0 && kc.throttle == 0);
+  k = {}; k.a = true; kc = mapKeys(k); CHECK(kc.yaw == -1 && kc.roll == 0);
+  k = {}; k.up = true; kc = mapKeys(k); CHECK(kc.pitch == 1 && kc.throttle == 0);
+  k = {}; k.down = true; kc = mapKeys(k); CHECK(kc.pitch == -1 && kc.throttle == 0);
+  k = {}; k.right = true; kc = mapKeys(k); CHECK(kc.roll == 1 && kc.yaw == 0);
+  k = {}; k.left = true; kc = mapKeys(k); CHECK(kc.roll == -1 && kc.yaw == 0);
+  k = {}; k.w = k.s = k.up = k.down = k.left = k.right = k.a = k.d = true;  // opposing keys cancel
+  kc = mapKeys(k); CHECK(kc.roll == 0 && kc.pitch == 0 && kc.yaw == 0 && kc.throttle == 0);
+  k = {}; k.w = k.d = k.up = k.right = true;  // all four axes at once
+  kc = mapKeys(k); CHECK(kc.throttle == 1 && kc.yaw == 1 && kc.pitch == 1 && kc.roll == 1);
 
   if (fails) { std::fprintf(stderr, "%d failure(s)\n", fails); return 1; }
   std::puts("test_input OK");
