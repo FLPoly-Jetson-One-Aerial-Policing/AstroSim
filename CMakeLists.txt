@@ -23,6 +23,8 @@ add_test(NAME gateway COMMAND test_gateway)
 
 add_executable(climb tools/climb.cpp)
 target_link_libraries(climb astrosim_proto)
+add_executable(latency tools/latency.cpp)
+target_link_libraries(latency astrosim_proto)
 
 # Container build: -DASTROSIM_BUILD_GATEWAY=ON (gz Jetty). Host build: default (no gz).
 option(ASTROSIM_BUILD_GATEWAY "Build gz-dependent targets" OFF)

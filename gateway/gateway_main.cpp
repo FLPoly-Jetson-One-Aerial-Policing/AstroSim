@@ -11,6 +11,7 @@ int main(int argc, char** argv) {
   astrosim::GatewayConfig cfg;
   if (argc > 1) cfg.port = static_cast<uint16_t>(std::atoi(argv[1]));
   if (argc > 2) cfg.idle_exit_s = std::atof(argv[2]);
+  if (argc > 3) cfg.tick_hz = std::atof(argv[3]);
   std::signal(SIGINT, [](int) { g_stop = true; });
   std::signal(SIGTERM, [](int) { g_stop = true; });
 
