@@ -12,7 +12,7 @@ Versions below are what the PoC was developed with.
 | ninja | build generator | 1.13 | `sudo dnf install ninja-build` |
 | git | source control | 2.55 | `sudo dnf install git` |
 | Go | orchestrator (`orchestrator/`) | 1.26 | `sudo dnf install golang` |
-| raylib + headers | viewer (not yet used) | 5.5 | `sudo dnf install raylib-devel` |
+| raylib + headers | viewer (`viewer`, built when raylib is found) | 5.5 | `sudo dnf install raylib-devel` |
 | display (WSLg or X11/Wayland) | viewer window | n/a | WSL2 provides WSLg; native Linux needs a desktop session |
 
 Not needed on the host: Gazebo, gz-transport, gz-msgs, Python (everything gz-related is in the container).

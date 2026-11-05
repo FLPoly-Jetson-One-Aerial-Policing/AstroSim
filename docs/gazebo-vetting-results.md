@@ -13,7 +13,9 @@ Environment: Fedora 44 on WSL2, podman 5.8 rootless, container Ubuntu 24.04, **g
 | Host client -> container gateway -> gz -> host | scripted climb to 2.000 m, error 0.000, over published UDP port | pass |
 | Control-to-state latency (< 50 ms p95) | see Latency section | echo pass; literal "first pose change" fails at 60 Hz, borderline at 500 Hz (plant response) |
 | Per-motor command injection | see below | works, with a caveat |
-| Orchestrator, viewer, latency | not done yet | pending |
+| raylib viewer on host (WSLg) | window renders at 60 FPS target, states NO GATEWAY / ENGINE DOWN / CONNECTED, vehicle + HUD verified by screenshot against the live container | pass (rendering); keyboard flight untested (no way to inject keys headless) |
+| Gamepad input | `/dev/input` does not exist in this WSL2 instance, so raylib sees no gamepad; stick mapping verified by unit tests only (`tests/test_input.cpp`) | blocked on WSL2; needs usbipd-win passthrough or a Windows-side viewer |
+| Orchestrator | not done yet | pending |
 
 ## Motor-out spike
 
