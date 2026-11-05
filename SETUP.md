@@ -17,11 +17,17 @@ Versions below are what the PoC was developed with.
 
 Not needed on the host: Gazebo, gz-transport, gz-msgs, Python (everything gz-related is in the container).
 
-One-liner:
+`./build.sh --deps` installs these for you on dnf, apt or pacman (it uses sudo; `--dry-run` shows the commands first), and `./build.sh` then builds everything. The manual one-liner for Fedora:
 
     sudo dnf install podman gcc-c++ cmake ninja-build git golang raylib-devel
 
 ## Build and test
+
+Everything (host C++, Go orchestrator, engine image):
+
+    ./build.sh [--deps] [--no-image]
+
+Or step by step:
 
 All suites in one go (C++ ctest, Go vet/test; `--integration` also starts the container and runs the scripted climb):
 
