@@ -1,11 +1,13 @@
 # Run the whole sim without installing anything but Docker Desktop (or podman-compose):
-#   docker compose up --build        then open http://localhost:6080/vnc.html?autoconnect=1&resize=scale
+#   docker compose up                pulls the prebuilt images from GHCR (builds from source if they can't be pulled)
+#   docker compose up --build        always builds from source
+# then open http://localhost:6080/vnc.html?autoconnect=1&resize=scale
 services:
   engine:
     build:
       context: .
       dockerfile: container/Containerfile
-    image: astrosim-engine:dev
+    image: ghcr.io/flpoly-jetson-one-aerial-policing/astrosim-engine:${ASTROSIM_TAG:-dev}
     environment:
       TICK_HZ: "60"
     ports:
@@ -14,7 +16,7 @@ services:
     build:
       context: .
       dockerfile: host/Containerfile
-    image: astrosim-viewer:dev
+    image: ghcr.io/flpoly-jetson-one-aerial-policing/astrosim-viewer:${ASTROSIM_TAG:-dev}
     depends_on: [engine]
     environment:
       ENGINE_HOST: engine
