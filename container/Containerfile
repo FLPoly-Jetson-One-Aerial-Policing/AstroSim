@@ -1,4 +1,5 @@
 # Engine image: headless Gazebo + gateway build toolchain.
+# Build from the repo root: podman build -f container/Containerfile .
 # Release is selectable; versions below are the OSRF noble package suffixes.
 #   jetty    : --build-arg GZ_SIM=10 --build-arg GZ_TRANSPORT=15 --build-arg GZ_MSGS=12  (default)
 #   harmonic : --build-arg GZ_SIM=8  --build-arg GZ_TRANSPORT=13 --build-arg GZ_MSGS=10
@@ -36,18 +37,19 @@ RUN gz fuel download -u "https://fuel.gazebosim.org/1.0/OpenRobotics/models/X3 U
 
 # gz-transport discovery stays inside the container; only the gateway UDP port is published.
 WORKDIR /opt/astrosim
-COPY worlds/ /opt/astrosim/worlds/
+COPY container/worlds/ /opt/astrosim/worlds/
 
 # Build the gateway into the image (gz-dependent targets only).
-COPY CMakeLists.txt /opt/astrosim/src/CMakeLists.txt
-COPY proto/ /opt/astrosim/src/proto/
-COPY gateway/ /opt/astrosim/src/gateway/
-COPY tests/ /opt/astrosim/src/tests/
-COPY tools/ /opt/astrosim/src/tools/
-RUN cmake -S /opt/astrosim/src -B /opt/astrosim/build -G Ninja -DASTROSIM_BUILD_GATEWAY=ON \
+# Mirrors the repo layout (container/ and shared/) so the CMake relative paths hold.
+COPY shared/proto/ /opt/astrosim/shared/proto/
+COPY container/CMakeLists.txt /opt/astrosim/container/CMakeLists.txt
+COPY container/gateway/ /opt/astrosim/container/gateway/
+COPY container/tests/ /opt/astrosim/container/tests/
+COPY container/tools/ /opt/astrosim/container/tools/
+RUN cmake -S /opt/astrosim/container -B /opt/astrosim/build -G Ninja -DASTROSIM_BUILD_GATEWAY=ON \
  && cmake --build /opt/astrosim/build --target gateway bench_rtf \
  && install -m755 /opt/astrosim/build/gateway /opt/astrosim/build/bench_rtf /usr/local/bin/
-COPY entrypoint.sh /opt/astrosim/entrypoint.sh
+COPY container/entrypoint.sh /opt/astrosim/entrypoint.sh
 
 EXPOSE 8765/udp
 

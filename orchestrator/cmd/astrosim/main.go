@@ -84,7 +84,7 @@ func parseOptions(name string, args []string) (options, error) {
 	if o.ViewerPath == "" {
 		o.ViewerPath = filepath.Join(o.Root, "build", "host", "viewer")
 	}
-	o.Containerfile = filepath.Join(o.Root, "Containerfile")
+	o.Containerfile = filepath.Join(o.Root, "container", "Containerfile")
 	return o, nil
 }
 

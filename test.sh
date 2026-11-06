@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Run all test suites. Usage: ./test.sh [--integration]
-#   default        : C++ host suites (wire, gateway, input via ctest) + Go suites (go vet, go test)
+#   default        : C++ host suites (host: input; container: wire, gateway; via ctest) + Go suites (go vet, go test)
 #   --integration  : also start the engine container and run the scripted climb against it
 #                    (needs podman and the astrosim-engine:dev image)
 set -u
@@ -20,9 +20,11 @@ run() {  # run <name> <command...>
 gen=()
 command -v ninja >/dev/null && gen=(-G Ninja)
 
-run "cmake configure" cmake -S . -B build/host "${gen[@]}" -DCMAKE_BUILD_TYPE=Release
-run "cmake build"     cmake --build build/host
-run "C++ (ctest)"     ctest --test-dir build/host --output-on-failure
+for part in host container; do
+  run "cmake configure ($part)" cmake -S "$part" -B "build/$part" "${gen[@]}" -DCMAKE_BUILD_TYPE=Release
+  run "cmake build ($part)"     cmake --build "build/$part"
+  run "C++ ctest ($part)"       ctest --test-dir "build/$part" --output-on-failure
+done
 run "Go vet"          bash -c 'cd orchestrator && go vet ./...'
 run "Go test"         bash -c 'cd orchestrator && go test -count=1 ./...'
 

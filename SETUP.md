@@ -39,28 +39,34 @@ Individually:
 
 Engine image (Ubuntu 24.04, gz Jetty; pulls ~1 GB, downloads the X3 model from Fuel at build time):
 
-    podman build -t astrosim-engine:dev -f Containerfile .
+    podman build -t astrosim-engine:dev -f container/Containerfile .
 
 Host build and tests:
 
-    cmake -S . -B build/host -G Ninja
+    cmake -S host -B build/host -G Ninja
     cmake --build build/host
     ctest --test-dir build/host
 
+Container-side C++ (protocol + gateway, host-buildable without gz) and its tests:
+
+    cmake -S container -B build/container -G Ninja
+    cmake --build build/container
+    ctest --test-dir build/container
+
 Orchestrator (Go):
 
-    (cd orchestrator && go test ./... && go build -o ../build/astrosim ./cmd/astrosim)
+    (cd orchestrator && go test ./... && go build -o ../build/orchestrator/astrosim ./cmd/astrosim)
 
 Run everything (container + viewer, supervised; Ctrl-C or closing the window stops it all):
 
-    build/astrosim up            # add --no-display for engine only, --tick 500 for a faster state stream
-    build/astrosim status
-    build/astrosim down
+    ./astrosim up            # add --no-display for engine only, --tick 500 for a faster state stream
+    ./astrosim status
+    ./astrosim down
 
 Container-side targets (gz-dependent, e.g. `bench_rtf`), built inside the image with the source bind-mounted:
 
     podman run --rm -v "$PWD":/src:Z -w /src astrosim-engine:dev \
-      bash -c 'cmake -S . -B build/gw -G Ninja -DASTROSIM_BUILD_GATEWAY=ON && cmake --build build/gw'
+      bash -c 'cmake -S container -B build/gw -G Ninja -DASTROSIM_BUILD_GATEWAY=ON && cmake --build build/gw'
 
 Run the sim and the benchmark:
 

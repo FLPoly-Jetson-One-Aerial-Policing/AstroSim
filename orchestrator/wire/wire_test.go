@@ -8,7 +8,7 @@ import (
 )
 
 func golden(t *testing.T, name string) []byte {
-	b, err := os.ReadFile(filepath.Join("..", "..", "proto", "testdata", name))
+	b, err := os.ReadFile(filepath.Join("..", "..", "shared", "proto", "testdata", name))
 	if err != nil {
 		t.Fatal(err)
 	}

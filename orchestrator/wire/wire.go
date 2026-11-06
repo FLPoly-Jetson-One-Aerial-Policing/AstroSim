@@ -1,5 +1,5 @@
 // Package wire is the minimal Go side of the gateway protocol: encode a Control, decode a State.
-// Layout is defined in proto/wire.hpp; golden vectors in proto/testdata keep both sides in step.
+// Layout is defined in shared/proto/wire.hpp; golden vectors in shared/proto/testdata keep both sides in step.
 package wire
 
 import (

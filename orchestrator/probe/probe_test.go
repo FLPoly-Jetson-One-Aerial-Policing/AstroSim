@@ -18,7 +18,7 @@ func fakeGateway(t *testing.T, after int) (port int, stop func()) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	gold, err := os.ReadFile(filepath.Join("..", "..", "proto", "testdata", "state.bin"))
+	gold, err := os.ReadFile(filepath.Join("..", "..", "shared", "proto", "testdata", "state.bin"))
 	if err != nil {
 		t.Fatal(err)
 	}

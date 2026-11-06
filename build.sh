@@ -8,7 +8,8 @@
 #   ./build.sh --no-image      skip the engine container image build
 #   ./build.sh --raylib MODE   AUTO (default: installed raylib, else build 5.5 from source) | SYSTEM | FETCH | OFF
 #
-# Outputs: build/host/{viewer,climb,latency,...}, build/astrosim, image astrosim-engine:dev
+# Outputs: build/host/{viewer,climb,latency}, build/container/{test_*}, build/orchestrator/astrosim
+# (symlinked to ./astrosim), image astrosim-engine:dev
 set -euo pipefail
 cd "$(dirname "$0")"
 
@@ -94,22 +95,25 @@ gen=()
 if command -v ninja >/dev/null; then gen=(-G Ninja); else echo "note: ninja not found, using the default generator"; fi
 
 echo "== C++ (host)"
-cmake -S . -B build/host "${gen[@]}" -DCMAKE_BUILD_TYPE=Release -DASTROSIM_RAYLIB="$RAYLIB"
+cmake -S host -B build/host "${gen[@]}" -DCMAKE_BUILD_TYPE=Release -DASTROSIM_RAYLIB="$RAYLIB"
 cmake --build build/host
+cmake -S container -B build/container "${gen[@]}" -DCMAKE_BUILD_TYPE=Release
+cmake --build build/container
 [[ -x build/host/viewer ]] || echo "note: viewer not built (--raylib $RAYLIB found no raylib); engine, tools and tests are unaffected"
 
 echo "== Go orchestrator"
-(cd orchestrator && go build -o ../build/astrosim ./cmd/astrosim)
+(cd orchestrator && go build -o ../build/orchestrator/astrosim ./cmd/astrosim)
+ln -sfn build/orchestrator/astrosim astrosim
 
 if ((IMAGE)); then
   echo "== engine image (first build takes several minutes)"
-  podman build -t astrosim-engine:dev -f Containerfile .
+  podman build -t astrosim-engine:dev -f container/Containerfile .
 fi
 
 echo
 echo "built:"
-for f in build/host/viewer build/host/climb build/host/latency build/astrosim; do
+for f in build/host/viewer build/host/climb build/host/latency astrosim; do
   [[ -x "$f" ]] && echo "  $f"
 done
 ((IMAGE)) && echo "  image astrosim-engine:dev"
-echo "next: ./test.sh   |   build/astrosim up"
+echo "next: ./test.sh   |   ./astrosim up"
