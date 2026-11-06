@@ -1,0 +1,22 @@
+# Run the whole sim without installing anything but Docker Desktop (or podman-compose):
+#   docker compose up --build        then open http://localhost:6080/vnc.html?autoconnect=1&resize=scale
+services:
+  engine:
+    build:
+      context: .
+      dockerfile: container/Containerfile
+    image: astrosim-engine:dev
+    environment:
+      TICK_HZ: "60"
+    ports:
+      - "8765:8765/udp"   # optional: lets a native host viewer/tool connect too
+  viewer:
+    build:
+      context: .
+      dockerfile: host/Containerfile
+    image: astrosim-viewer:dev
+    depends_on: [engine]
+    environment:
+      ENGINE_HOST: engine
+    ports:
+      - "6080:6080"
