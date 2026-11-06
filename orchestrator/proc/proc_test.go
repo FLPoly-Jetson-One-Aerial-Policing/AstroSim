@@ -50,8 +50,14 @@ func TestStopKillsWholeGroup(t *testing.T) {
 	if time.Since(start) > 1500*time.Millisecond {
 		t.Fatalf("stop took %v", time.Since(start))
 	}
-	if err := syscall.Kill(-c.Pid(), 0); err == nil {
-		t.Fatal("process group still alive")
+	// The orphaned grandchild stays a zombie until PID 1 reaps it, and kill(-pgid, 0)
+	// still succeeds on zombies, so poll briefly instead of checking once.
+	deadline := time.Now().Add(500 * time.Millisecond)
+	for syscall.Kill(-c.Pid(), 0) == nil {
+		if time.Now().After(deadline) {
+			t.Fatal("process group still alive")
+		}
+		time.Sleep(5 * time.Millisecond)
 	}
 }
 
