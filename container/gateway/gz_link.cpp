@@ -3,6 +3,8 @@
 #include <gz/msgs/boolean.pb.h>
 #include <gz/msgs/twist.pb.h>
 
+#include <gz/math/Quaternion.hh>
+
 #include <algorithm>
 #include <chrono>
 
@@ -31,7 +33,9 @@ void GzLink::onOdom(const gz::msgs::Odometry& m) {
   const auto& w = m.twist().angular();
   s.pos[0] = p.x(); s.pos[1] = p.y(); s.pos[2] = p.z();
   s.quat[0] = q.x(); s.quat[1] = q.y(); s.quat[2] = q.z(); s.quat[3] = q.w();
-  s.vel[0] = v.x(); s.vel[1] = v.y(); s.vel[2] = v.z();
+  // OdometryPublisher reports linear velocity in the body frame; the wire carries it in the world frame like pos.
+  const gz::math::Vector3d vw = gz::math::Quaterniond(q.w(), q.x(), q.y(), q.z()).RotateVector({v.x(), v.y(), v.z()});
+  s.vel[0] = vw.X(); s.vel[1] = vw.Y(); s.vel[2] = vw.Z();
   s.ang_vel[0] = w.x(); s.ang_vel[1] = w.y(); s.ang_vel[2] = w.z();
   {
     std::lock_guard<std::mutex> l(mu_);

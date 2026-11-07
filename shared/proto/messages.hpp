@@ -12,10 +12,10 @@ enum StateFlags : uint8_t { kFailed = 1, kGzConnected = 2 };
 
 struct StateMsg {
   double sim_time = 0;
-  float pos[3] = {0, 0, 0};
-  float quat[4] = {0, 0, 0, 1};  // x y z w
-  float vel[3] = {0, 0, 0};
-  float ang_vel[3] = {0, 0, 0};
+  float pos[3] = {0, 0, 0};       // world (ENU), m
+  float quat[4] = {0, 0, 0, 1};   // x y z w, body (FLU) to world
+  float vel[3] = {0, 0, 0};       // world, m/s
+  float ang_vel[3] = {0, 0, 0};   // body, rad/s
   uint8_t flags = 0;
   uint32_t echo_seq = 0;  // seq of the last Control the gateway applied
 };
