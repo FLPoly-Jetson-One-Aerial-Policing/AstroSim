@@ -40,7 +40,8 @@ void Gateway::onControl(Client& c, uint32_t seq, const ControlMsg& m, double now
   c.has_seq = true;
   c.last_seq = seq;
   c.echo_seq = seq;
-  gz_.command(headingToBody(mix(m), gz_.state().quat));
+  const StateMsg s = gz_.state();
+  gz_.command(fly(m, yawOf(s.quat), s.vel));
   last_control_ = now;
   neutral_sent_ = false;
 }

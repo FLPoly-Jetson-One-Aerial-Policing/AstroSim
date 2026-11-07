@@ -3,6 +3,7 @@
 #include <sys/socket.h>
 #include <unistd.h>
 
+#include <array>
 #include <atomic>
 #include <chrono>
 #include <cmath>
@@ -79,19 +80,46 @@ struct Harness {
 
 static void sleepMs(int ms) { std::this_thread::sleep_for(std::chrono::milliseconds(ms)); }
 
-static void testMixer() {
-  VelCmd v = mix({0, 1, 0, 0});  CHECK(v.vx == kMaxHoriz && v.vy == 0 && v.vz == 0 && v.yaw_rate == 0);
-  v = mix({1, 0, 0, 0});         CHECK(v.vy == -kMaxHoriz);
-  v = mix({0, 0, 1, 0});         CHECK(v.yaw_rate == -kMaxYaw);
-  v = mix({0, 0, 0, 1});         CHECK(v.vz == kMaxVert);
-  v = mix({0, 0, 0, 0});         CHECK(v.vx == 0 && v.vy == 0 && v.vz == 0 && v.yaw_rate == 0);
-  v = mix({0, 7, 0, -9});        CHECK(v.vx == kMaxHoriz && v.vz == -kMaxVert);
+// Command full stick produces with the vehicle at rest: just the acceleration request.
+constexpr double kFull = kTiltAccel / kCtrlGain;
+
+static bool near(double a, double b, double e = 1e-9) { return std::fabs(a - b) <= e; }
+
+static void testFly() {
+  const float rest[3] = {0, 0, 0};
+  VelCmd v = fly({0, 0, 0, 0}, 0, rest);  // at rest, no input: stays put
+  CHECK(v.vx == 0 && v.vy == 0 && v.vz == 0 && v.yaw_rate == 0);
+  v = fly({0, 0, 1, 0}, 0, rest);  CHECK(v.yaw_rate == -kMaxYaw && v.vx == 0);
+  v = fly({0, 0, 0, 1}, 0, rest);  CHECK(v.vz == kMaxVert);
+  v = fly({0, 0, 0, -9}, 0, rest); CHECK(v.vz == -kMaxVert);
   const float nan = std::numeric_limits<float>::quiet_NaN();
-  v = mix({nan, nan, nan, nan}); CHECK(v.vx == 0 && v.vy == 0 && v.vz == 0 && v.yaw_rate == 0);
-  // full diagonal is clamped to the governed speed, direction kept
-  v = mix({1, 1, 0, 0});
-  CHECK(std::fabs(std::hypot(v.vx, v.vy) - kMaxHoriz) < 1e-9 && std::fabs(v.vx + v.vy) < 1e-9 && v.vx > 0);
-  v = mix({0.5f, 0.5f, 0, 0});   CHECK(std::fabs(v.vx - 0.5 * kMaxHoriz) < 1e-9);  // inside the limit: untouched
+  v = fly({nan, nan, nan, nan}, 0, rest); CHECK(v.vx == 0 && v.vy == 0 && v.vz == 0 && v.yaw_rate == 0);
+  const float bad[3] = {nan, nan, nan};
+  v = fly({0, 0, 0, 0}, 0, bad);   CHECK(v.vx == 0 && v.vy == 0);
+
+  // stick = tilt = acceleration along the heading, on top of the current velocity
+  v = fly({0, 1, 0, 0}, 0, rest);        CHECK(near(v.vx, kFull) && near(v.vy, 0));
+  v = fly({1, 0, 0, 0}, 0, rest);        CHECK(near(v.vy, -kFull) && near(v.vx, 0));  // roll right = -y (FLU)
+  v = fly({0, 1, 0, 0}, M_PI / 2, rest); CHECK(near(v.vx, 0) && near(v.vy, kFull));   // facing north
+  v = fly({1, 1, 0, 0}, 0, rest);        CHECK(near(std::hypot(v.vx, v.vy), kFull));  // diagonal: same max tilt
+  const float moving[3] = {10, -3, 0.5f};
+  v = fly({0, 1, 0, 0}, 0, moving);      CHECK(near(v.vx, 10 + kFull, 1e-6) && near(v.vy, -3, 1e-6));
+
+  // centred stick: hold the current velocity (coast under drag), don't brake to a hover; heading doesn't matter
+  v = fly({0, 0, 0, 0}, 1.0, moving);    CHECK(near(v.vx, 10, 1e-6) && near(v.vy, -3, 1e-6) && v.vz == 0);
+
+  // drag is sized so full tilt balances it exactly at the governed top speed
+  CHECK(near(dragAccel(kMaxHoriz), kTiltAccel, 1e-9));
+  // governor: past top speed, the push along the velocity tapers off (hold minus pull-back); turning still allowed
+  const float fast[3] = {static_cast<float>(kMaxHoriz + 2), 0, 0};
+  v = fly({0, 1, 0, 0}, 0, fast);
+  CHECK(near((v.vx - fast[0]) * kCtrlGain, dragAccel(fast[0]) - kCtrlGain * (fast[0] - kMaxHoriz), 1e-4));
+  CHECK((v.vx - fast[0]) * kCtrlGain < dragAccel(fast[0]));  // net: decelerating
+  const float atTop[3] = {static_cast<float>(kMaxHoriz), 0, 0};
+  v = fly({0, 1, 0, 0}, 0, atTop);       CHECK(near(v.vx - atTop[0], kFull, 1e-4));  // exactly at the limit: full tilt holds
+  v = fly({1, 0, 0, 0}, 0, fast);
+  CHECK(near(v.vy, -kFull) && near(v.vx, fast[0], 1e-6));
+  v = fly({0, -1, 0, 0}, 0, fast);       CHECK(near(v.vx, fast[0] - kFull, 1e-5));  // braking untouched
 }
 
 // q = rotation of `deg` about unit axis (ax, ay, az), x y z w
@@ -111,26 +139,24 @@ static bool near3(const double a[3], double x, double y, double z) {
   return std::fabs(a[0] - x) < 1e-5 && std::fabs(a[1] - y) < 1e-5 && std::fabs(a[2] - z) < 1e-5;
 }
 
-static void testHeadingToBody() {
+static void testWorldToBody() {
   const VelCmd c{10, 2, -1, 0.5};
   float q[4] = {0, 0, 0, 1};
-  VelCmd b = headingToBody(c, q);  // level: unchanged
-  CHECK(std::fabs(b.vx - 10) < 1e-6 && std::fabs(b.vy - 2) < 1e-6 && std::fabs(b.vz + 1) < 1e-6 && b.yaw_rate == 0.5);
+  VelCmd b = worldToBody(c, q);  // level, facing east: unchanged
+  CHECK(near(b.vx, 10, 1e-6) && near(b.vy, 2, 1e-6) && near(b.vz, -1, 1e-6) && b.yaw_rate == 0.5);
   float zero[4] = {0, 0, 0, 0};
-  b = headingToBody(c, zero);      // no attitude yet: unchanged
+  b = worldToBody(c, zero);      // no attitude yet: unchanged
   CHECK(b.vx == 10 && b.vy == 2 && b.vz == -1);
+  // whatever the attitude, the controller's rotation lands the command back on the world velocity (no sink when
+  // nose-down, heading changes don't turn it)
   double wv[3];
-  axisAngle(q, 0, 0, 1, 90);       // heading only: still the same body command, world velocity turned with heading
-  b = headingToBody(c, q); bodyToWorld(q, b, wv);
-  CHECK(std::fabs(b.vx - 10) < 1e-5 && std::fabs(b.vy - 2) < 1e-5 && near3(wv, -2, 10, -1));
-  axisAngle(q, 0, 1, 0, 14);       // nose down 14 deg (gz pitch +): forward stays level, no sink
-  b = headingToBody(c, q); bodyToWorld(q, b, wv);
-  CHECK(near3(wv, 10, 2, -1));
-  axisAngle(q, 0.6, 0.48, 0.64, 33);  // arbitrary tilt + heading: world velocity = heading-rotated command
-  b = headingToBody(c, q); bodyToWorld(q, b, wv);
-  double x = q[0], y = q[1], z = q[2], w = q[3];
-  double yaw = std::atan2(2 * (x * y + w * z), 1 - 2 * (y * y + z * z));
-  CHECK(near3(wv, std::cos(yaw) * 10 - std::sin(yaw) * 2, std::sin(yaw) * 10 + std::cos(yaw) * 2, -1));
+  for (auto [ax, ay, az, deg] : {std::array<double, 4>{0, 0, 1, 90}, {0, 1, 0, 14}, {0.6, 0.48, 0.64, 33}}) {
+    axisAngle(q, ax, ay, az, deg);
+    b = worldToBody(c, q); bodyToWorld(q, b, wv);
+    CHECK(near3(wv, 10, 2, -1));
+  }
+  axisAngle(q, 0, 0, 1, 90);
+  CHECK(near(yawOf(q), M_PI / 2, 1e-6));
 }
 
 static void testStreamAndEcho() {
@@ -153,7 +179,7 @@ static void testStreamAndEcho() {
   CHECK(n > 15 && n < 45);  // ~60 Hz until the 0.5 s deadman... stream continues; loose bound over 0.5 s window
   CHECK(h.gz.count() >= 1);
   VelCmd v = h.gz.cmds.front();
-  CHECK(v.vx == 0.5 * kMaxHoriz && v.vz == 0.25 * kMaxVert);
+  CHECK(near(v.vx, 0.5 * kFull) && v.vz == 0.25 * kMaxVert);
   sleepMs(1100);
   CHECK(h.gz.enables >= 1);
 }
@@ -166,7 +192,7 @@ static void testNanSanitized() {
   sleepMs(100);
   CHECK(h.gz.count() == 1);
   VelCmd v = h.gz.last();
-  CHECK(v.vx == kMaxHoriz && v.vy == 0 && v.vz == 0 && v.yaw_rate == 0);
+  CHECK(near(v.vx, kFull) && v.vy == 0 && v.vz == 0 && v.yaw_rate == 0);
 }
 
 static void testGarbageIgnored() {
@@ -191,7 +217,7 @@ static void testStaleSeq() {
   c.sendControl({0, -1, 0, 0}, 5);   // stale
   c.sendControl({0, -1, 0, 0}, 10);  // duplicate
   sleepMs(100);
-  CHECK(h.gz.count() == 1 && h.gz.last().vx == kMaxHoriz);
+  CHECK(h.gz.count() == 1 && near(h.gz.last().vx, kFull));
   c.sendControl({0, 0, 0, 0}, 11);
   sleepMs(50);
   CHECK(h.gz.count() == 2);
@@ -200,7 +226,7 @@ static void testStaleSeq() {
   w.sendControl({0, 1, 0, 0}, 0xFFFFFFFFu);
   w.sendControl({0, 0.5f, 0, 0}, 0u);
   sleepMs(100);
-  CHECK(h.gz.count() == 4 && h.gz.last().vx == 0.5 * kMaxHoriz);
+  CHECK(h.gz.count() == 4 && near(h.gz.last().vx, 0.5 * kFull));
 }
 
 static void testDeadman() {
@@ -218,7 +244,7 @@ static void testDeadman() {
   CHECK(h.gz.count() == 2);  // not repeated
   c.sendControl({0, 1, 0, 0}, 2);
   sleepMs(60);
-  CHECK(h.gz.count() == 3 && h.gz.last().vx == kMaxHoriz);
+  CHECK(h.gz.count() == 3 && near(h.gz.last().vx, kFull));
 }
 
 static void testGzDisconnectedFlag() {
@@ -256,8 +282,8 @@ static void testIdleExit() {
 }
 
 int main() {
-  testMixer();
-  testHeadingToBody();
+  testFly();
+  testWorldToBody();
   testStreamAndEcho();
   testNanSanitized();
   testGarbageIgnored();

@@ -37,11 +37,14 @@ void GzLink::onOdom(const gz::msgs::Odometry& m) {
   const gz::math::Vector3d vw = gz::math::Quaterniond(q.w(), q.x(), q.y(), q.z()).RotateVector({v.x(), v.y(), v.z()});
   s.vel[0] = vw.X(); s.vel[1] = vw.Y(); s.vel[2] = vw.Z();
   s.ang_vel[0] = w.x(); s.ang_vel[1] = w.y(); s.ang_vel[2] = w.z();
+  VelCmd cmd;
   {
     std::lock_guard<std::mutex> l(mu_);
     state_ = s;
+    cmd = world_cmd_;
   }
   last_pose_wall_ = wallNow();
+  publish(cmd, s.quat);
 }
 
 bool GzLink::connected() { return last_pose_wall_ > 0 && wallNow() - last_pose_wall_ < 0.5; }
@@ -51,13 +54,28 @@ StateMsg GzLink::state() {
   return state_;
 }
 
-void GzLink::command(const VelCmd& c) {
+// The velocity controller takes body-frame commands and rotates them by its current attitude, so the world-frame
+// command must be converted with an attitude as fresh as possible: an old one at speed reads as a large velocity
+// error (28 m/s x 0.03 rad ~ 1 m/s) while pitching. Converting here and again on every odometry update keeps
+// the attitude age to one odometry period instead of a whole control interval.
+void GzLink::publish(const VelCmd& world, const float quat[4]) {
+  const VelCmd c = worldToBody(world, quat);
   gz::msgs::Twist t;
   t.mutable_linear()->set_x(c.vx);
   t.mutable_linear()->set_y(c.vy);
   t.mutable_linear()->set_z(c.vz);
   t.mutable_angular()->set_z(c.yaw_rate);
   twist_pub_.Publish(t);
+}
+
+void GzLink::command(const VelCmd& c) {
+  StateMsg s;
+  {
+    std::lock_guard<std::mutex> l(mu_);
+    world_cmd_ = c;
+    s = state_;
+  }
+  publish(c, s.quat);
 }
 
 void GzLink::enable() {

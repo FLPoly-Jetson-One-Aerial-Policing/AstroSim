@@ -20,11 +20,13 @@ class GzLink : public GzSide {
 
  private:
   void onOdom(const gz::msgs::Odometry&);
+  void publish(const VelCmd& world, const float quat[4]);
 
   gz::transport::Node node_;
   gz::transport::Node::Publisher twist_pub_, enable_pub_;
   std::mutex mu_;
   StateMsg state_;
+  VelCmd world_cmd_;  // last command, re-sent in the body frame on every odometry update
   std::atomic<double> last_pose_wall_{0};
 };
 

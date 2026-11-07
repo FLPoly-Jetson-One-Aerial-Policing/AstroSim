@@ -17,7 +17,7 @@ class GzSide {
   virtual ~GzSide() = default;
   virtual bool connected() = 0;   // fresh pose data is arriving
   virtual StateMsg state() = 0;   // latest pose/velocity; flags/echo_seq are filled by the gateway
-  virtual void command(const VelCmd&) = 0;
+  virtual void command(const VelCmd&) = 0;  // world-frame (ENU) linear velocity, yaw rate
   virtual void enable() = 0;      // (re)enable the velocity controller; called ~1 Hz
 };
 
