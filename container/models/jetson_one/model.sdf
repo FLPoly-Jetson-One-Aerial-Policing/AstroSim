@@ -1,0 +1,250 @@
+<?xml version="1.0" ?>
+<!--
+  Jetson ONE stand-in, sized to the published envelope: 2.70 m long x 1.60 m wide x 1.12 m tall
+  (jetson.com/jetson-one). Frame is FLU, base_link origin 0.45 m above the ground.
+
+  Geometry only. The real aircraft has eight motors in four stacked pairs; here each pair is one rotor
+  link (two prop visuals), so the stock four-motor MulticopterMotorModel / MulticopterVelocityControl
+  setup from the X3 UAV still applies. Mass, inertia, motor constants and controller gains are the X3's,
+  unchanged, so flight dynamics match the vetted PoC; only rotor positions (the allocation lever arms)
+  and the collision envelope differ. Real mass properties (~115 kg + pilot) need retuned gains.
+-->
+<sdf version="1.6">
+  <model name="jetson_one">
+    <pose>0 0 0.45 0 0 0</pose>
+    <link name="jetson_one/base_link">
+      <inertial>
+        <mass>1.5</mass>
+        <inertia>
+          <ixx>0.0347563</ixx><ixy>0</ixy><ixz>0</ixz>
+          <iyy>0.07</iyy><iyz>0</iyz>
+          <izz>0.0977</izz>
+        </inertia>
+      </inertial>
+      <collision name="tub_collision">
+        <pose>0 0 0.11 0 0 0</pose>
+        <geometry><box><size>1.2 0.62 1.12</size></box></geometry>
+      </collision>
+      <collision name="skid_l_collision">
+        <pose>0 0.4 -0.42 0 0 0</pose>
+        <geometry><box><size>1.5 0.06 0.06</size></box></geometry>
+      </collision>
+      <collision name="skid_r_collision">
+        <pose>0 -0.4 -0.42 0 0 0</pose>
+        <geometry><box><size>1.5 0.06 0.06</size></box></geometry>
+      </collision>
+      <visual name="tub_floor">
+        <pose>0 0 -0.32 0 0 0</pose>
+        <geometry><box><size>1.2 0.62 0.06</size></box></geometry>
+        <material><ambient>0.15 0.15 0.15 1</ambient><diffuse>0.15 0.15 0.15 1</diffuse></material>
+      </visual>
+      <visual name="tub_side_l">
+        <pose>0 0.29 -0.12 0 0 0</pose>
+        <geometry><box><size>1.2 0.04 0.4</size></box></geometry>
+        <material><ambient>0.9 0.9 0.9 1</ambient><diffuse>0.9 0.9 0.9 1</diffuse></material>
+      </visual>
+      <visual name="skid_l">
+        <pose>0 0.40 -0.42 0 0 0</pose>
+        <geometry><box><size>1.5 0.05 0.05</size></box></geometry>
+        <material><ambient>0.15 0.15 0.15 1</ambient><diffuse>0.15 0.15 0.15 1</diffuse></material>
+      </visual>
+      <visual name="tub_side_r">
+        <pose>0 -0.29 -0.12 0 0 0</pose>
+        <geometry><box><size>1.2 0.04 0.4</size></box></geometry>
+        <material><ambient>0.9 0.9 0.9 1</ambient><diffuse>0.9 0.9 0.9 1</diffuse></material>
+      </visual>
+      <visual name="skid_r">
+        <pose>0 -0.40 -0.42 0 0 0</pose>
+        <geometry><box><size>1.5 0.05 0.05</size></box></geometry>
+        <material><ambient>0.15 0.15 0.15 1</ambient><diffuse>0.15 0.15 0.15 1</diffuse></material>
+      </visual>
+      <visual name="tub_nose">
+        <pose>0.58 0 -0.12 0 0 0</pose>
+        <geometry><box><size>0.04 0.62 0.4</size></box></geometry>
+        <material><ambient>0.8 0.1 0.1 1</ambient><diffuse>0.8 0.1 0.1 1</diffuse></material>
+      </visual>
+      <visual name="seat">
+        <pose>-0.42 0 -0.05 0 0 0</pose>
+        <geometry><box><size>0.36 0.58 0.5</size></box></geometry>
+        <material><ambient>0.15 0.15 0.15 1</ambient><diffuse>0.15 0.15 0.15 1</diffuse></material>
+      </visual>
+      <visual name="roll_hoop">
+        <pose>-0.3 0 0.42 0 0 0</pose>
+        <geometry><box><size>0.08 0.5 0.5</size></box></geometry>
+        <material><ambient>0.9 0.9 0.9 1</ambient><diffuse>0.9 0.9 0.9 1</diffuse></material>
+      </visual>
+      <visual name="arm_0">
+        <pose>0.750 -0.400 0.21 0 -0.5862 -0.3218</pose>
+        <geometry><box><size>0.759 0.06 0.06</size></box></geometry>
+        <material><ambient>0.15 0.15 0.15 1</ambient><diffuse>0.15 0.15 0.15 1</diffuse></material>
+      </visual>
+      <visual name="arm_1">
+        <pose>-0.750 0.400 0.21 0 -0.5862 2.8198</pose>
+        <geometry><box><size>0.759 0.06 0.06</size></box></geometry>
+        <material><ambient>0.15 0.15 0.15 1</ambient><diffuse>0.15 0.15 0.15 1</diffuse></material>
+      </visual>
+      <visual name="arm_2">
+        <pose>0.750 0.400 0.21 0 -0.5862 0.3218</pose>
+        <geometry><box><size>0.759 0.06 0.06</size></box></geometry>
+        <material><ambient>0.15 0.15 0.15 1</ambient><diffuse>0.15 0.15 0.15 1</diffuse></material>
+      </visual>
+      <visual name="arm_3">
+        <pose>-0.750 -0.400 0.21 0 -0.5862 -2.8198</pose>
+        <geometry><box><size>0.759 0.06 0.06</size></box></geometry>
+        <material><ambient>0.15 0.15 0.15 1</ambient><diffuse>0.15 0.15 0.15 1</diffuse></material>
+      </visual>
+    </link>
+    <link name="jetson_one/rotor_0">
+      <pose>1.05 -0.5 0.45 0 0 0</pose>
+      <inertial>
+        <mass>0.005</mass>
+        <inertia>
+          <ixx>9.75e-07</ixx><ixy>0</ixy><ixz>0</ixz>
+          <iyy>4.17041e-05</iyy><iyz>0</iyz>
+          <izz>4.26041e-05</izz>
+        </inertia>
+      </inertial>
+      <collision name="rotor_0_collision">
+        <pose>0 0 0 0 0 0</pose>
+        <geometry><cylinder><radius>0.3</radius><length>0.2</length></cylinder></geometry>
+      </collision>
+      <visual name="rotor_0_motor">
+        <pose>0 0 0 0 0 0</pose>
+        <geometry><cylinder><radius>0.06</radius><length>0.18</length></cylinder></geometry>
+        <material><ambient>0.15 0.15 0.15 1</ambient><diffuse>0.15 0.15 0.15 1</diffuse></material>
+      </visual>
+      <visual name="rotor_0_prop_upper">
+        <pose>0 0 0.07 0 0 0</pose>
+        <geometry><cylinder><radius>0.3</radius><length>0.01</length></cylinder></geometry>
+        <material><ambient>0.1 0.1 0.1 0.6</ambient><diffuse>0.1 0.1 0.1 0.6</diffuse></material>
+      </visual>
+      <visual name="rotor_0_prop_lower">
+        <pose>0 0 -0.07 0 0 0</pose>
+        <geometry><cylinder><radius>0.3</radius><length>0.01</length></cylinder></geometry>
+        <material><ambient>0.1 0.1 0.1 0.6</ambient><diffuse>0.1 0.1 0.1 0.6</diffuse></material>
+      </visual>
+    </link>
+    <joint name="jetson_one/rotor_0_joint" type="revolute">
+      <parent>jetson_one/base_link</parent>
+      <child>jetson_one/rotor_0</child>
+      <axis>
+        <xyz>0 0 1</xyz>
+        <limit><lower>-1e+16</lower><upper>1e+16</upper></limit>
+      </axis>
+    </joint>
+    <link name="jetson_one/rotor_1">
+      <pose>-1.05 0.5 0.45 0 0 0</pose>
+      <inertial>
+        <mass>0.005</mass>
+        <inertia>
+          <ixx>9.75e-07</ixx><ixy>0</ixy><ixz>0</ixz>
+          <iyy>4.17041e-05</iyy><iyz>0</iyz>
+          <izz>4.26041e-05</izz>
+        </inertia>
+      </inertial>
+      <collision name="rotor_1_collision">
+        <pose>0 0 0 0 0 0</pose>
+        <geometry><cylinder><radius>0.3</radius><length>0.2</length></cylinder></geometry>
+      </collision>
+      <visual name="rotor_1_motor">
+        <pose>0 0 0 0 0 0</pose>
+        <geometry><cylinder><radius>0.06</radius><length>0.18</length></cylinder></geometry>
+        <material><ambient>0.15 0.15 0.15 1</ambient><diffuse>0.15 0.15 0.15 1</diffuse></material>
+      </visual>
+      <visual name="rotor_1_prop_upper">
+        <pose>0 0 0.07 0 0 0</pose>
+        <geometry><cylinder><radius>0.3</radius><length>0.01</length></cylinder></geometry>
+        <material><ambient>0.1 0.1 0.1 0.6</ambient><diffuse>0.1 0.1 0.1 0.6</diffuse></material>
+      </visual>
+      <visual name="rotor_1_prop_lower">
+        <pose>0 0 -0.07 0 0 0</pose>
+        <geometry><cylinder><radius>0.3</radius><length>0.01</length></cylinder></geometry>
+        <material><ambient>0.1 0.1 0.1 0.6</ambient><diffuse>0.1 0.1 0.1 0.6</diffuse></material>
+      </visual>
+    </link>
+    <joint name="jetson_one/rotor_1_joint" type="revolute">
+      <parent>jetson_one/base_link</parent>
+      <child>jetson_one/rotor_1</child>
+      <axis>
+        <xyz>0 0 1</xyz>
+        <limit><lower>-1e+16</lower><upper>1e+16</upper></limit>
+      </axis>
+    </joint>
+    <link name="jetson_one/rotor_2">
+      <pose>1.05 0.5 0.45 0 0 0</pose>
+      <inertial>
+        <mass>0.005</mass>
+        <inertia>
+          <ixx>9.75e-07</ixx><ixy>0</ixy><ixz>0</ixz>
+          <iyy>4.17041e-05</iyy><iyz>0</iyz>
+          <izz>4.26041e-05</izz>
+        </inertia>
+      </inertial>
+      <collision name="rotor_2_collision">
+        <pose>0 0 0 0 0 0</pose>
+        <geometry><cylinder><radius>0.3</radius><length>0.2</length></cylinder></geometry>
+      </collision>
+      <visual name="rotor_2_motor">
+        <pose>0 0 0 0 0 0</pose>
+        <geometry><cylinder><radius>0.06</radius><length>0.18</length></cylinder></geometry>
+        <material><ambient>0.15 0.15 0.15 1</ambient><diffuse>0.15 0.15 0.15 1</diffuse></material>
+      </visual>
+      <visual name="rotor_2_prop_upper">
+        <pose>0 0 0.07 0 0 0</pose>
+        <geometry><cylinder><radius>0.3</radius><length>0.01</length></cylinder></geometry>
+        <material><ambient>0.1 0.1 0.1 0.6</ambient><diffuse>0.1 0.1 0.1 0.6</diffuse></material>
+      </visual>
+      <visual name="rotor_2_prop_lower">
+        <pose>0 0 -0.07 0 0 0</pose>
+        <geometry><cylinder><radius>0.3</radius><length>0.01</length></cylinder></geometry>
+        <material><ambient>0.1 0.1 0.1 0.6</ambient><diffuse>0.1 0.1 0.1 0.6</diffuse></material>
+      </visual>
+    </link>
+    <joint name="jetson_one/rotor_2_joint" type="revolute">
+      <parent>jetson_one/base_link</parent>
+      <child>jetson_one/rotor_2</child>
+      <axis>
+        <xyz>0 0 1</xyz>
+        <limit><lower>-1e+16</lower><upper>1e+16</upper></limit>
+      </axis>
+    </joint>
+    <link name="jetson_one/rotor_3">
+      <pose>-1.05 -0.5 0.45 0 0 0</pose>
+      <inertial>
+        <mass>0.005</mass>
+        <inertia>
+          <ixx>9.75e-07</ixx><ixy>0</ixy><ixz>0</ixz>
+          <iyy>4.17041e-05</iyy><iyz>0</iyz>
+          <izz>4.26041e-05</izz>
+        </inertia>
+      </inertial>
+      <collision name="rotor_3_collision">
+        <pose>0 0 0 0 0 0</pose>
+        <geometry><cylinder><radius>0.3</radius><length>0.2</length></cylinder></geometry>
+      </collision>
+      <visual name="rotor_3_motor">
+        <pose>0 0 0 0 0 0</pose>
+        <geometry><cylinder><radius>0.06</radius><length>0.18</length></cylinder></geometry>
+        <material><ambient>0.15 0.15 0.15 1</ambient><diffuse>0.15 0.15 0.15 1</diffuse></material>
+      </visual>
+      <visual name="rotor_3_prop_upper">
+        <pose>0 0 0.07 0 0 0</pose>
+        <geometry><cylinder><radius>0.3</radius><length>0.01</length></cylinder></geometry>
+        <material><ambient>0.1 0.1 0.1 0.6</ambient><diffuse>0.1 0.1 0.1 0.6</diffuse></material>
+      </visual>
+      <visual name="rotor_3_prop_lower">
+        <pose>0 0 -0.07 0 0 0</pose>
+        <geometry><cylinder><radius>0.3</radius><length>0.01</length></cylinder></geometry>
+        <material><ambient>0.1 0.1 0.1 0.6</ambient><diffuse>0.1 0.1 0.1 0.6</diffuse></material>
+      </visual>
+    </link>
+    <joint name="jetson_one/rotor_3_joint" type="revolute">
+      <parent>jetson_one/base_link</parent>
+      <child>jetson_one/rotor_3</child>
+      <axis>
+        <xyz>0 0 1</xyz>
+        <limit><lower>-1e+16</lower><upper>1e+16</upper></limit>
+      </axis>
+    </joint>
+  </model>
+</sdf>

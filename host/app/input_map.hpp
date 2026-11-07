@@ -38,4 +38,17 @@ inline ControlMsg mapKeys(const Keys& k) {
   return {axis(k.right, k.left), axis(k.up, k.down), axis(k.d, k.a), axis(k.w, k.s)};  // roll, pitch, yaw, throttle
 }
 
+inline bool anyKey(const Keys& k) { return k.w || k.a || k.s || k.d || k.up || k.left || k.down || k.right; }
+inline bool anyAxis(const ControlMsg& c) { return c.roll != 0 || c.pitch != 0 || c.yaw != 0 || c.throttle != 0; }
+
+enum class InputSource { Keyboard, Gamepad };
+
+// Last-touched device wins, so a connected but idle (or unmapped, all-zero) pad never locks out the keyboard.
+// Keyboard wins ties; with nothing touched the previous choice holds.
+inline InputSource pickSource(InputSource cur, bool keysActive, bool padActive, bool padPresent) {
+  if (!padPresent || keysActive) return InputSource::Keyboard;
+  if (padActive) return InputSource::Gamepad;
+  return cur;
+}
+
 }  // namespace astrosim

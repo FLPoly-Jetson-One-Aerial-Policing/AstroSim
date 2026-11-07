@@ -37,7 +37,7 @@ All suites in one go (C++ ctest, Go vet/test; `--integration` also starts the co
 
 Individually:
 
-Engine image (Ubuntu 24.04, gz Jetty; pulls ~1 GB, downloads the X3 model from Fuel at build time):
+Engine image (Ubuntu 24.04, gz Jetty; pulls ~1 GB, downloads the X3 model from Fuel at build time for the spike world; the PoC flies the in-repo `container/models/jetson_one`):
 
     podman build -t astrosim-engine:dev -f container/Containerfile .
 
@@ -62,6 +62,8 @@ Run everything (container + viewer, supervised; Ctrl-C or closing the window sto
     ./astrosim up            # add --no-display for engine only, --tick 500 for a faster state stream
     ./astrosim status
     ./astrosim down
+
+Viewer controls: WASD throttle/yaw, arrows pitch/roll (gamepad: Mode 2 sticks). `C` (gamepad Y / triangle) toggles the cockpit and chase cameras; `viewer --cockpit` starts in the cockpit.
 
 Container-side targets (gz-dependent, e.g. `bench_rtf`), built inside the image with the source bind-mounted:
 

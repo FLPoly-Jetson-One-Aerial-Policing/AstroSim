@@ -1,5 +1,5 @@
 // RTF + determinism benchmark. Runs in the engine container against a running `gz sim -s`.
-// usage: bench_rtf [rtf_seconds=60] [world=multicopter] [model=X3]
+// usage: bench_rtf [rtf_seconds=60] [world=multicopter] [model=jetson_one]
 #include <gz/msgs/boolean.pb.h>
 #include <gz/msgs/odometry.pb.h>
 #include <gz/msgs/twist.pb.h>
@@ -82,7 +82,7 @@ int main(int argc, char **argv) {
   setvbuf(stdout, nullptr, _IONBF, 0);
   const double rtfSecs = argc > 1 ? std::atof(argv[1]) : 60.0;
   const std::string world = argc > 2 ? argv[2] : "multicopter";
-  const std::string model = argc > 3 ? argv[3] : "X3";
+  const std::string model = argc > 3 ? argv[3] : "jetson_one";
   std::string lower = model; std::transform(lower.begin(), lower.end(), lower.begin(), ::tolower);
 
   gz::transport::Node node;

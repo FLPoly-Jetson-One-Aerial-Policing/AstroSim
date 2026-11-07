@@ -64,6 +64,17 @@ int main() {
   k = {}; k.w = k.d = k.up = k.right = true;  // all four axes at once
   kc = mapKeys(k); CHECK(kc.throttle == 1 && kc.yaw == 1 && kc.pitch == 1 && kc.roll == 1);
 
+  // input source: last-touched wins, keyboard wins ties, no pad means keyboard
+  CHECK(anyKey(k) && !anyKey(Keys{}));
+  CHECK(anyAxis(mapGamepad(0, -1, 0, 0)) && !anyAxis(mapGamepad(0.05f, 0, 0, 0)));
+  using S = InputSource;
+  CHECK(pickSource(S::Gamepad, false, false, true) == S::Gamepad);   // idle: hold
+  CHECK(pickSource(S::Keyboard, false, false, true) == S::Keyboard);
+  CHECK(pickSource(S::Gamepad, true, false, true) == S::Keyboard);   // key press takes over from an idle pad
+  CHECK(pickSource(S::Keyboard, false, true, true) == S::Gamepad);   // stick movement takes back over
+  CHECK(pickSource(S::Gamepad, true, true, true) == S::Keyboard);    // both: keyboard
+  CHECK(pickSource(S::Gamepad, false, true, false) == S::Keyboard);  // pad unplugged
+
   if (fails) { std::fprintf(stderr, "%d failure(s)\n", fails); return 1; }
   std::puts("test_input OK");
   return 0;

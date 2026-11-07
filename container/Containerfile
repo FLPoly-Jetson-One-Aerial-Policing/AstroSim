@@ -31,13 +31,14 @@ RUN apt-get update \
  && apt-get install -y --no-install-recommends gz-sim${GZ_SIM}-cli gz-transport${GZ_TRANSPORT}-cli gz-msgs${GZ_MSGS}-cli iputils-ping \
  && rm -rf /var/lib/apt/lists/*
 
-# Pre-fetch the stock X3 UAV so the sim does not need the network at run time.
+# Pre-fetch the stock X3 UAV (used by worlds/spike_nocontrol.sdf) so the sim does not need the network at run time.
 RUN gz fuel download -u "https://fuel.gazebosim.org/1.0/OpenRobotics/models/X3 UAV/4" >/dev/null 2>&1 \
  && test -f "/root/.gz/fuel/fuel.gazebosim.org/openrobotics/models/x3 uav/4/model.sdf"
 
 # gz-transport discovery stays inside the container; only the gateway UDP port is published.
 WORKDIR /opt/astrosim
 COPY container/worlds/ /opt/astrosim/worlds/
+COPY container/models/ /opt/astrosim/models/
 
 # Build the gateway into the image (gz-dependent targets only).
 # Mirrors the repo layout (container/ and shared/) so the CMake relative paths hold.

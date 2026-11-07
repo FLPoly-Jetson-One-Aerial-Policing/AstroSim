@@ -12,7 +12,7 @@ namespace astrosim {
 
 class GzLink : public GzSide {
  public:
-  explicit GzLink(const std::string& model = "X3");
+  explicit GzLink(const std::string& model = "jetson_one");
   bool connected() override;
   StateMsg state() override;
   void command(const VelCmd&) override;
