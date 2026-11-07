@@ -88,6 +88,49 @@ static void testMixer() {
   v = mix({0, 7, 0, -9});        CHECK(v.vx == kMaxHoriz && v.vz == -kMaxVert);
   const float nan = std::numeric_limits<float>::quiet_NaN();
   v = mix({nan, nan, nan, nan}); CHECK(v.vx == 0 && v.vy == 0 && v.vz == 0 && v.yaw_rate == 0);
+  // full diagonal is clamped to the governed speed, direction kept
+  v = mix({1, 1, 0, 0});
+  CHECK(std::fabs(std::hypot(v.vx, v.vy) - kMaxHoriz) < 1e-9 && std::fabs(v.vx + v.vy) < 1e-9 && v.vx > 0);
+  v = mix({0.5f, 0.5f, 0, 0});   CHECK(std::fabs(v.vx - 0.5 * kMaxHoriz) < 1e-9);  // inside the limit: untouched
+}
+
+// q = rotation of `deg` about unit axis (ax, ay, az), x y z w
+static void axisAngle(float q[4], double ax, double ay, double az, double deg) {
+  double h = deg * M_PI / 360;
+  q[0] = ax * std::sin(h); q[1] = ay * std::sin(h); q[2] = az * std::sin(h); q[3] = std::cos(h);
+}
+// what the gz controller does with a body command: rotate it into the world by q
+static void bodyToWorld(const float q[4], const VelCmd& b, double out[3]) {
+  double x = q[0], y = q[1], z = q[2], w = q[3];
+  const double R[3][3] = {{1 - 2 * (y * y + z * z), 2 * (x * y - w * z), 2 * (x * z + w * y)},
+                          {2 * (x * y + w * z), 1 - 2 * (x * x + z * z), 2 * (y * z - w * x)},
+                          {2 * (x * z - w * y), 2 * (y * z + w * x), 1 - 2 * (x * x + y * y)}};
+  for (int i = 0; i < 3; ++i) out[i] = R[i][0] * b.vx + R[i][1] * b.vy + R[i][2] * b.vz;
+}
+static bool near3(const double a[3], double x, double y, double z) {
+  return std::fabs(a[0] - x) < 1e-5 && std::fabs(a[1] - y) < 1e-5 && std::fabs(a[2] - z) < 1e-5;
+}
+
+static void testHeadingToBody() {
+  const VelCmd c{10, 2, -1, 0.5};
+  float q[4] = {0, 0, 0, 1};
+  VelCmd b = headingToBody(c, q);  // level: unchanged
+  CHECK(std::fabs(b.vx - 10) < 1e-6 && std::fabs(b.vy - 2) < 1e-6 && std::fabs(b.vz + 1) < 1e-6 && b.yaw_rate == 0.5);
+  float zero[4] = {0, 0, 0, 0};
+  b = headingToBody(c, zero);      // no attitude yet: unchanged
+  CHECK(b.vx == 10 && b.vy == 2 && b.vz == -1);
+  double wv[3];
+  axisAngle(q, 0, 0, 1, 90);       // heading only: still the same body command, world velocity turned with heading
+  b = headingToBody(c, q); bodyToWorld(q, b, wv);
+  CHECK(std::fabs(b.vx - 10) < 1e-5 && std::fabs(b.vy - 2) < 1e-5 && near3(wv, -2, 10, -1));
+  axisAngle(q, 0, 1, 0, 14);       // nose down 14 deg (gz pitch +): forward stays level, no sink
+  b = headingToBody(c, q); bodyToWorld(q, b, wv);
+  CHECK(near3(wv, 10, 2, -1));
+  axisAngle(q, 0.6, 0.48, 0.64, 33);  // arbitrary tilt + heading: world velocity = heading-rotated command
+  b = headingToBody(c, q); bodyToWorld(q, b, wv);
+  double x = q[0], y = q[1], z = q[2], w = q[3];
+  double yaw = std::atan2(2 * (x * y + w * z), 1 - 2 * (y * y + z * z));
+  CHECK(near3(wv, std::cos(yaw) * 10 - std::sin(yaw) * 2, std::sin(yaw) * 10 + std::cos(yaw) * 2, -1));
 }
 
 static void testStreamAndEcho() {
@@ -214,6 +257,7 @@ static void testIdleExit() {
 
 int main() {
   testMixer();
+  testHeadingToBody();
   testStreamAndEcho();
   testNanSanitized();
   testGarbageIgnored();
