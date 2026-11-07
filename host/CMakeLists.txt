@@ -14,6 +14,14 @@ target_link_libraries(test_input astrosim_proto)
 target_include_directories(test_input PRIVATE app)
 add_test(NAME input COMMAND test_input)
 
+# Campus greybox: header-only scene (shared/scene), its SDF generator, and a test that the committed SDF is current.
+add_executable(gen_campus tools/gen_campus.cpp)
+target_include_directories(gen_campus PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/../shared/scene)
+add_executable(test_campus tests/test_campus.cpp)
+target_include_directories(test_campus PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/../shared/scene)
+target_compile_definitions(test_campus PRIVATE ASTROSIM_CAMPUS_SDF="${CMAKE_CURRENT_SOURCE_DIR}/../container/models/campus/model.sdf")
+add_test(NAME campus COMMAND test_campus)
+
 # raylib for the viewer. AUTO: use an installed raylib (pkg-config), else fetch and build a pinned 5.5.
 # SYSTEM: installed only (viewer skipped if missing). FETCH: always build from source. OFF: no viewer.
 set(ASTROSIM_RAYLIB AUTO CACHE STRING "raylib source: AUTO | SYSTEM | FETCH | OFF")
@@ -46,6 +54,7 @@ endif()
 if(RAYLIB_TARGET)
   add_executable(viewer app/viewer.cpp)
   target_link_libraries(viewer astrosim_proto ${RAYLIB_TARGET})
+  target_include_directories(viewer PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/../shared/scene)
 else()
   message(STATUS "raylib not available: viewer not built")
 endif()
