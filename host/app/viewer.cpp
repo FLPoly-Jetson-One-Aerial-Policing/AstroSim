@@ -1,6 +1,7 @@
 // raylib viewer: renders the vehicle from gateway State, sends Control from gamepad (preferred) or keyboard.
-// usage: viewer [host=127.0.0.1] [port=8765] [--cockpit] [--ghost-cage] [--shot out.png] [--frames N]
-// C (gamepad Y / triangle) toggles the cockpit and chase cameras; T (gamepad X / square) toggles a see-through roll cage.
+// usage: viewer [host=127.0.0.1] [port=8765] [--cockpit] [--hover] [--ghost-cage] [--shot out.png] [--frames N]
+// C (gamepad Y / triangle) toggles the cockpit and chase cameras; T (gamepad X / square) toggles a see-through roll cage;
+// Space (gamepad A / cross) toggles auto hover.
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
@@ -98,9 +99,10 @@ static Camera3D cockpitCamera(Vector3 pos, Quaternion q) {
 int main(int argc, char** argv) {
   std::string host = "127.0.0.1", shot;
   int port = 8765, maxFrames = 0, positional = 0;
-  bool cockpit = false, cageTranslucent = false;
+  bool cockpit = false, cageTranslucent = false, startHover = false;
   for (int i = 1; i < argc; ++i) {
     if (!std::strcmp(argv[i], "--cockpit")) cockpit = true;
+    else if (!std::strcmp(argv[i], "--hover")) startHover = true;
     else if (!std::strcmp(argv[i], "--ghost-cage")) cageTranslucent = true;
     else if (!std::strcmp(argv[i], "--shot") && i + 1 < argc) shot = argv[++i];
     else if (!std::strcmp(argv[i], "--frames") && i + 1 < argc) maxFrames = std::atoi(argv[++i]);
@@ -123,7 +125,10 @@ int main(int argc, char** argv) {
   int frame = 0;
   ControlMsg ctl;
   InputSource src = findGamepad() >= 0 ? InputSource::Gamepad : InputSource::Keyboard;
+  HoverAssist hover;
+  hover.on = startHover;
   while (!WindowShouldClose()) {
+    StateMsg s = link.latest();
     // ---- input ----
     int pad = findGamepad();
     const char* source = "none";
@@ -144,10 +149,14 @@ int main(int argc, char** argv) {
     if (IsKeyPressed(KEY_C) || (pad >= 0 && IsGamepadButtonPressed(pad, GAMEPAD_BUTTON_RIGHT_FACE_UP))) cockpit = !cockpit;
     if (IsKeyPressed(KEY_T) || (pad >= 0 && IsGamepadButtonPressed(pad, GAMEPAD_BUTTON_RIGHT_FACE_LEFT)))
       cageTranslucent = !cageTranslucent;
+    if (IsKeyPressed(KEY_SPACE) || (pad >= 0 && IsGamepadButtonPressed(pad, GAMEPAD_BUTTON_RIGHT_FACE_DOWN))) hover.toggle();
+    if (link.connected()) {  // act only on fresh state
+      const float qx = s.quat[0], qy = s.quat[1], qz = s.quat[2], qw = s.quat[3];
+      hover.apply(ctl, s.vel, std::atan2(2 * (qw * qz + qx * qy), 1 - 2 * (qy * qy + qz * qz)));
+    }
     link.send(ctl);  // always send (zeros included): it is also the keepalive that registers us with the gateway
 
     // ---- state ----
-    StateMsg s = link.latest();
     bool alive = link.gatewayAlive(), engine = link.connected();
     const float x = s.quat[0], y = s.quat[1], z = s.quat[2], w = s.quat[3];
     float yaw = std::atan2(2 * (w * z + x * y), 1 - 2 * (y * y + z * z));
@@ -175,6 +184,8 @@ int main(int argc, char** argv) {
     av.tilt = tilt;
     av.simTime = s.sim_time;
     av.ctl = ctl;
+    av.hover = hover.on;
+    av.hoverSettled = engine && hover.settled(s.vel);
     avionics::attitude(s.quat, av.pitch, av.roll, av.heading);
     BeginTextureMode(screen);
     avionics::draw(av);
@@ -208,8 +219,8 @@ int main(int argc, char** argv) {
       const char* msg = alive ? "ENGINE DOWN - holding" : "waiting for gateway...";
       DrawText(msg, (sw - MeasureText(msg, 36)) / 2, sh * 5 / 12, 36, av.statusColor);
     }
-    DrawText(src == InputSource::Gamepad ? "L: throttle/yaw   R: pitch/roll   Y: camera   X: cage"
-                                         : "WASD: throttle/yaw   Arrows: pitch/roll   C: camera   T: cage",
+    DrawText(src == InputSource::Gamepad ? "L: throttle/yaw   R: pitch/roll   Y: camera   X: cage   A: hover"
+                                         : "WASD: throttle/yaw   Arrows: pitch/roll   C: camera   T: cage   Space: hover",
              20, sh - 30, 18, WHITE);
     const char* camName = cockpit ? "COCKPIT" : "CHASE";
     DrawText(camName, sw - 20 - MeasureText(camName, 20), 18, 20, WHITE);

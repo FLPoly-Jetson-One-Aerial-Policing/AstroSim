@@ -75,6 +75,37 @@ int main() {
   CHECK(pickSource(S::Gamepad, true, true, true) == S::Keyboard);    // both: keyboard
   CHECK(pickSource(S::Gamepad, false, true, false) == S::Keyboard);  // pad unplugged
 
+  // auto hover: drive horizontal velocity to zero when the pilot's pitch/roll stick is centred
+  {
+    const float still[3] = {0, 0, 0}, fastEast[3] = {20, 0, 0}, slowEast[3] = {1, 0, 0.5f};
+    HoverAssist h;
+    ControlMsg ctl{};
+    CHECK(!h.apply(ctl, fastEast, 0) && ctl.pitch == 0);            // off: untouched
+    h.toggle();
+    ctl = {0.3f, 0, 0, 0.5f};
+    CHECK(!h.apply(ctl, fastEast, 0) && ctl.roll == 0.3f);          // pilot on the stick: untouched
+    ctl = {0, 0, 0.2f, 0.5f};
+    CHECK(h.apply(ctl, fastEast, 0));                               // fast, facing east: full brake (stick back)
+    CHECK(near(ctl.pitch, -1) && near(ctl.roll, 0) && ctl.yaw == 0.2f && ctl.throttle == 0.5f);
+    ctl = {};
+    CHECK(h.apply(ctl, fastEast, M_PI / 2));                        // facing north, moving east: roll left
+    CHECK(near(ctl.pitch, 0, 1e-5f) && near(ctl.roll, -1));
+    ctl = {};
+    h.apply(ctl, slowEast, 0);                                      // slow: proportional; vertical ignored
+    CHECK(near(ctl.pitch, -kHoverGain / kStickAccel) && near(ctl.roll, 0));
+    const float diag[3] = {30, 30, 0};
+    ctl = {};
+    h.apply(ctl, diag, 0);                                          // capped at full stick
+    CHECK(near(std::hypot(ctl.pitch, ctl.roll), 1) && ctl.pitch < 0 && ctl.roll > 0);  // moving NE: back and right
+    ctl = {};
+    CHECK(h.apply(ctl, still, 0) && ctl.pitch == 0 && ctl.roll == 0);  // stopped: nothing to do
+    const float creep[3] = {0.05f, 0.05f, 0.05f}, sinking[3] = {0, 0, -0.3f};
+    CHECK(h.settled(still) && h.settled(creep) && !h.settled(slowEast) && h.settled(sinking));  // vertical ignored
+    h.toggle();
+    ctl = {};
+    CHECK(!h.on && !h.apply(ctl, fastEast, 0) && ctl.pitch == 0 && !h.settled(still));
+  }
+
   if (fails) { std::fprintf(stderr, "%d failure(s)\n", fails); return 1; }
   std::puts("test_input OK");
   return 0;

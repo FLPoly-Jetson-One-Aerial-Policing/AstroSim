@@ -21,6 +21,7 @@ struct Data {
   float tilt = 0;                            // deg from level
   double simTime = 0;
   ControlMsg ctl;
+  bool hover = false, hoverSettled = false;  // auto hover on; and horizontal speed within its threshold of zero
 };
 
 // Flight attitude from a gz body (FLU) to world (ENU) quaternion {x, y, z, w}.
@@ -75,6 +76,12 @@ inline void draw(const Data& d) {
   DrawLine(8, 34, kWidth - 8, 34, kFrame);
 
   adi(12, 44, 264, d.pitch, d.roll);
+  if (d.hover) {  // auto hover annunciator on the horizon: amber while still moving, green once hovering
+    const Color c = d.hoverSettled ? Color{60, 220, 90, 255} : kSymbol;
+    DrawRectangle(20, 52, 56, 22, {0, 0, 0, 170});
+    DrawRectangleLines(20, 52, 56, 22, c);
+    DrawText("HOVR", 20 + (56 - MeasureText("HOVR", 16)) / 2, 55, 16, c);
+  }
 
   // Data column.
   int x = 292, y = 46;

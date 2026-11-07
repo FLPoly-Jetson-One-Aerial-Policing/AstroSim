@@ -51,4 +51,38 @@ inline InputSource pickSource(InputSource cur, bool keysActive, bool padActive, 
   return cur;
 }
 
+// Auto hover: a pilot assist that, when on and the pilot's pitch/roll stick is centred, flies that stick to bring
+// horizontal velocity to zero (where the craft ends up is the pilot's business). Pitch/roll stick means a tilt /
+// horizontal acceleration request, full deflection = kStickAccel (the gateway's 25 deg max tilt,
+// container/gateway/mixer.hpp kTiltAccel). Vertical needs nothing: centred throttle already commands zero climb.
+constexpr float kStickAccel = 4.5745f;  // m/s^2 at full pitch/roll stick
+constexpr float kHoverGain = 1.0f;      // 1/s: requested deceleration per m/s (full stick above ~4.6 m/s)
+constexpr float kHoverSettled = 0.1f;   // m/s: horizontal speed below this counts as hovering
+
+struct HoverAssist {
+  bool on = false;
+
+  void toggle() { on = !on; }
+
+  // On and actually hovering: horizontal speed (world, m/s) within kHoverSettled of zero. Vertical is the
+  // throttle's (altitude hold) business, not the assist's, so it is not counted.
+  bool settled(const float vel[3]) const {
+    return on && std::hypot(vel[0], vel[1]) < kHoverSettled;
+  }
+
+  // Fills c.pitch / c.roll when active. vel is world (ENU), yaw the heading (rad, ENU). Returns whether it acted.
+  bool apply(ControlMsg& c, const float vel[3], float yaw) const {
+    if (!on || c.pitch != 0 || c.roll != 0) return false;
+    const float ax = -kHoverGain * vel[0], ay = -kHoverGain * vel[1];
+    // World acceleration -> heading-relative stick: pitch forward, roll right (= -left).
+    const float cy = std::cos(yaw), sy = std::sin(yaw);
+    float fwd = (cy * ax + sy * ay) / kStickAccel, left = (-sy * ax + cy * ay) / kStickAccel;
+    const float m = std::hypot(fwd, left);
+    if (m > 1) { fwd /= m; left /= m; }
+    c.pitch = fwd;
+    c.roll = -left;
+    return true;
+  }
+};
+
 }  // namespace astrosim

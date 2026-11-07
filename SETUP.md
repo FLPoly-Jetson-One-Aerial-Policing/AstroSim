@@ -63,7 +63,7 @@ Run everything (container + viewer, supervised; Ctrl-C or closing the window sto
     ./astrosim status
     ./astrosim down
 
-Viewer controls: WASD throttle/yaw, arrows pitch/roll (gamepad: Mode 2 sticks). `C` (gamepad Y / triangle) toggles the cockpit and chase cameras; `T` (gamepad X / square) makes the roll cage see-through. `viewer --cockpit` and `--ghost-cage` start that way. Flight and link status are on the cockpit's avionics screen, shown as an overlay in the chase view.
+Viewer controls: WASD throttle/yaw, arrows pitch/roll (gamepad: Mode 2 sticks). `C` (gamepad Y / triangle) toggles the cockpit and chase cameras; `T` (gamepad X / square) makes the roll cage see-through; `Space` (gamepad A / cross) toggles auto hover, which brakes horizontal motion to a stop whenever the pitch/roll stick is centred (HOVR on the horizon: amber while still moving, green once hovering). `viewer --cockpit`, `--ghost-cage` and `--hover` start that way. Flight and link status are on the cockpit's avionics screen, shown as an overlay in the chase view.
 
 Container-side targets (gz-dependent, e.g. `bench_rtf`), built inside the image with the source bind-mounted:
 
