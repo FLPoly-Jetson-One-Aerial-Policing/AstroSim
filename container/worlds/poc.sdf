@@ -33,23 +33,25 @@
       <direction>-0.5 0.1 -0.9</direction>
     </light>
 
+    <!-- Map ground: 800 m east-west (x) by 1100 m north-south (y), centred on the spawn pad, top face at z=0.
+         A box, not a <plane>: plane collision is infinite whatever its <size>, and the map is meant to end
+         (fly past the edge and there is nothing to land on). host/app/viewer.cpp draws the same extent. -->
     <model name="ground_plane">
       <static>true</static>
       <link name="link">
+        <pose>0 0 -0.5 0 0 0</pose>
         <collision name="collision">
           <geometry>
-            <plane>
-              <normal>0 0 1</normal>
-              <size>100 100</size>
-            </plane>
+            <box>
+              <size>800 1100 1</size>
+            </box>
           </geometry>
         </collision>
         <visual name="visual">
           <geometry>
-            <plane>
-              <normal>0 0 1</normal>
-              <size>100 100</size>
-            </plane>
+            <box>
+              <size>800 1100 1</size>
+            </box>
           </geometry>
           <material>
             <ambient>0.8 0.8 0.8 1</ambient>

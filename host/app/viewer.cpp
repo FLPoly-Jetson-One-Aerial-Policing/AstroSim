@@ -28,24 +28,48 @@ static int findGamepad() {
   return -1;
 }
 
+// Map ground, matching the ground box in container/worlds/poc.sdf: 800 m east-west (gz x, raylib x) by
+// 1100 m north-south (gz y, raylib -z), centred on the spawn pad. Past the edge there is no ground.
+constexpr float kMapHalfX = 400, kMapHalfZ = 550;
+static bool onMap(float x, float z) { return std::fabs(x) <= kMapHalfX && std::fabs(z) <= kMapHalfZ; }
+
 // Visual-only scenery for a sense of speed and height; gz has nothing here, so the trees have no collision.
-static void drawScenery() {
-  DrawPlane({0, 0, 0}, {400, 400}, {90, 110, 80, 255});
-  DrawGrid(100, 1.0f);
+// The grid and the trees are generated around the vehicle (`at`) and clipped to the map: a fixed grid's edge
+// mid-map reads as a tilted horizon. Grid lines and trees stay put in the world, so they still show motion.
+static void drawScenery(Vector3 at) {
+  DrawCube({0, -0.5f, 0}, 2 * kMapHalfX, 1, 2 * kMapHalfZ, {90, 110, 80, 255});
+  DrawCubeWires({0, -0.5f, 0}, 2 * kMapHalfX, 1, 2 * kMapHalfZ, {60, 75, 55, 255});
+  // 1 m grid within 50 m of the vehicle, on whole-metre world lines.
+  constexpr float kGrid = 50;
+  const float x0 = std::fmax(std::floor(at.x) - kGrid, -kMapHalfX), x1 = std::fmin(std::floor(at.x) + kGrid, kMapHalfX);
+  const float z0 = std::fmax(std::floor(at.z) - kGrid, -kMapHalfZ), z1 = std::fmin(std::floor(at.z) + kGrid, kMapHalfZ);
+  const Color line = {200, 200, 200, 255};
+  for (float x = std::ceil(x0); x <= x1; ++x) DrawLine3D({x, 0.01f, z0}, {x, 0.01f, z1}, line);
+  for (float z = std::ceil(z0); z <= z1; ++z) DrawLine3D({x0, 0.01f, z}, {x1, 0.01f, z}, line);
   // Landing pad at the spawn point.
   DrawCylinder({0, 0.0f, 0}, 3.2f, 3.2f, 0.02f, 48, {70, 72, 78, 255});
   DrawCylinderWires({0, 0.0f, 0}, 2.9f, 2.9f, 0.025f, 48, {240, 200, 40, 255});
   DrawCube({0, 0.025f, -0.6f}, 1.6f, 0.01f, 0.25f, WHITE);  // "H", legs along the spawn heading
   DrawCube({0, 0.025f, 0.6f}, 1.6f, 0.01f, 0.25f, WHITE);
   DrawCube({0, 0.025f, 0}, 0.25f, 0.01f, 1.2f, WHITE);
-  // Ring of trees at a deterministic pseudo-random spread, kept clear of the flying area near the pad.
-  unsigned seed = 12345;
-  auto rnd = [&seed] { seed = seed * 1103515245u + 12345u; return ((seed >> 16) & 0x7fff) / 32767.f; };
-  for (int i = 0; i < 120; ++i) {
-    float a = rnd() * 2 * PI, r = 30 + rnd() * 120, h = 4 + rnd() * 6;
-    Vector3 base = {std::cos(a) * r, 0, std::sin(a) * r};
-    DrawCylinder(base, 0.25f, 0.35f, h * 0.4f, 6, {95, 70, 45, 255});
-    DrawCylinder({base.x, h * 0.3f, base.z}, 0, h * 0.28f, h * 0.7f, 8, {static_cast<unsigned char>(45 + i % 20), static_cast<unsigned char>(100 + i % 30), 50, 255});
+  // Forest: each 20 m cell hashes to at most one tree, so a tree is always at the same world spot.
+  constexpr float kCell = 20, kRange = 200;
+  const int cx = static_cast<int>(std::floor(at.x / kCell)), cz = static_cast<int>(std::floor(at.z / kCell));
+  const int n = static_cast<int>(kRange / kCell);
+  for (int i = cx - n; i <= cx + n; ++i) {
+    for (int j = cz - n; j <= cz + n; ++j) {
+      unsigned seed = static_cast<unsigned>(i) * 73856093u ^ static_cast<unsigned>(j) * 19349663u;
+      auto rnd = [&seed] { seed = seed * 1103515245u + 12345u; return ((seed >> 16) & 0x7fff) / 32767.f; };
+      if (rnd() > 0.35f) continue;
+      Vector3 base = {(i + rnd()) * kCell, 0, (j + rnd()) * kCell};
+      if (base.x * base.x + base.z * base.z < 30 * 30) continue;  // clearing around the pad
+      if (!onMap(base.x, base.z) || !onMap(std::fabs(base.x) + 2, std::fabs(base.z) + 2)) continue;  // canopy stays on the map
+      float h = 4 + rnd() * 6;
+      unsigned char shade = static_cast<unsigned char>(rnd() * 30);
+      DrawCylinder(base, 0.25f, 0.35f, h * 0.4f, 6, {95, 70, 45, 255});
+      DrawCylinder({base.x, h * 0.3f, base.z}, 0, h * 0.28f, h * 0.7f, 8,
+                   {static_cast<unsigned char>(45 + shade / 2), static_cast<unsigned char>(100 + shade), 50, 255});
+    }
   }
 }
 
@@ -135,14 +159,16 @@ int main(int argc, char** argv) {
     BeginDrawing();
     ClearBackground({135, 175, 215, 255});
     BeginMode3D(cam);
-    drawScenery();
-    // Shadow: the 2.7 x 1.6 m footprint, turned to the vehicle's heading.
-    rlPushMatrix();
-    rlTranslatef(target.x, 0.03f, target.z);
-    rlRotatef(yaw * RAD2DEG, 0, 1, 0);
-    DrawCube({0, 0, 0}, 2.7f, 0.01f, 1.6f, {0, 0, 0, 90});
-    rlPopMatrix();
-    if (!cockpit) DrawLine3D({target.x, 0, target.z}, target, {255, 255, 255, 120});  // altitude line
+    drawScenery(target);
+    if (onMap(target.x, target.z)) {
+      // Shadow: the 2.7 x 1.6 m footprint, turned to the vehicle's heading.
+      rlPushMatrix();
+      rlTranslatef(target.x, 0.03f, target.z);
+      rlRotatef(yaw * RAD2DEG, 0, 1, 0);
+      DrawCube({0, 0, 0}, 2.7f, 0.01f, 1.6f, {0, 0, 0, 90});
+      rlPopMatrix();
+      if (!cockpit) DrawLine3D({target.x, 0, target.z}, target, {255, 255, 255, 120});  // altitude line
+    }
     jetson::draw(target, q, ctl, cockpit, engine, propAngle);
     EndMode3D();
 
