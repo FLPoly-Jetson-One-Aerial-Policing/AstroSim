@@ -6,8 +6,9 @@
   Geometry only. The real aircraft has eight motors in four stacked pairs; here each pair is one rotor
   link (two prop visuals), so the stock four-motor MulticopterMotorModel / MulticopterVelocityControl
   setup from the X3 UAV still applies. Mass, inertia, motor constants and controller gains are the X3's,
-  unchanged, so flight dynamics match the vetted PoC; only rotor positions (the allocation lever arms)
-  and the collision envelope differ. Real mass properties (~115 kg + pilot) need retuned gains.
+  so flight dynamics stay close to the vetted PoC; rotor positions (the allocation lever arms) and the
+  collision envelope differ, and worlds/poc.sdf scales rotorDragCoefficient to the longer arms.
+  Real mass properties (~115 kg + pilot) need retuned gains.
 -->
 <sdf version="1.6">
   <model name="jetson_one">

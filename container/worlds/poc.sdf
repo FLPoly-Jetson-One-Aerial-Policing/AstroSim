@@ -64,6 +64,9 @@
       <uri>
         model://jetson_one
       </uri>
+      <!-- X3 motor constants, except rotorDragCoefficient: its yaw damping grows with rotor radius squared, and
+           at the Jetson's 1.163 m (X3: 0.247 m) the stock 8.06428e-05 capped yaw at ~0.4 rad/s and kept one
+           diagonal pair at its speed limit, so yaw + forward flight rocked. Scaled by (0.247/1.163)^2. -->
       <plugin
         filename="gz-sim-multicopter-motor-model-system"
         name="gz::sim::systems::MulticopterMotorModel">
@@ -78,7 +81,7 @@
         <momentConstant>0.016</momentConstant>
         <commandSubTopic>gazebo/command/motor_speed</commandSubTopic>
         <actuator_number>0</actuator_number>
-        <rotorDragCoefficient>8.06428e-05</rotorDragCoefficient>
+        <rotorDragCoefficient>3.64e-06</rotorDragCoefficient>
         <rollingMomentCoefficient>1e-06</rollingMomentCoefficient>
         <motorSpeedPubTopic>motor_speed/0</motorSpeedPubTopic>
         <rotorVelocitySlowdownSim>10</rotorVelocitySlowdownSim>
@@ -98,7 +101,7 @@
         <momentConstant>0.016</momentConstant>
         <commandSubTopic>gazebo/command/motor_speed</commandSubTopic>
         <actuator_number>1</actuator_number>
-        <rotorDragCoefficient>8.06428e-05</rotorDragCoefficient>
+        <rotorDragCoefficient>3.64e-06</rotorDragCoefficient>
         <rollingMomentCoefficient>1e-06</rollingMomentCoefficient>
         <motorSpeedPubTopic>motor_speed/1</motorSpeedPubTopic>
         <rotorVelocitySlowdownSim>10</rotorVelocitySlowdownSim>
@@ -118,7 +121,7 @@
         <momentConstant>0.016</momentConstant>
         <commandSubTopic>gazebo/command/motor_speed</commandSubTopic>
         <actuator_number>2</actuator_number>
-        <rotorDragCoefficient>8.06428e-05</rotorDragCoefficient>
+        <rotorDragCoefficient>3.64e-06</rotorDragCoefficient>
         <rollingMomentCoefficient>1e-06</rollingMomentCoefficient>
         <motorSpeedPubTopic>motor_speed/2</motorSpeedPubTopic>
         <rotorVelocitySlowdownSim>10</rotorVelocitySlowdownSim>
@@ -138,7 +141,7 @@
         <momentConstant>0.016</momentConstant>
         <commandSubTopic>gazebo/command/motor_speed</commandSubTopic>
         <actuator_number>3</actuator_number>
-        <rotorDragCoefficient>8.06428e-05</rotorDragCoefficient>
+        <rotorDragCoefficient>3.64e-06</rotorDragCoefficient>
         <rollingMomentCoefficient>1e-06</rollingMomentCoefficient>
         <motorSpeedPubTopic>motor_speed/3</motorSpeedPubTopic>
         <rotorVelocitySlowdownSim>10</rotorVelocitySlowdownSim>
