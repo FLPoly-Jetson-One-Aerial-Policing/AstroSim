@@ -11,7 +11,7 @@
 namespace astrosim::jetson {
 
 constexpr float kRideHeight = 0.45f;            // base_link above ground when landed
-constexpr Vector3 kEye = {0.02f, 0.56f, 0.0f};  // pilot eye point, ~1.0 m above ground
+constexpr Vector3 kEye = {0.02f, 0.48f, 0.0f};  // pilot eye point, ~0.93 m above ground, helmet clears the cage
 constexpr float kPropRadius = 0.30f;
 // Rotor stack centers (gz rotor_0..3 at x=+-1.05, y=+-0.5, z=0.45; gz y-left becomes raylib -z).
 constexpr Vector3 kRotors[4] = {{1.05f, 0.45f, 0.5f}, {-1.05f, 0.45f, -0.5f}, {1.05f, 0.45f, -0.5f}, {-1.05f, 0.45f, 0.5f}};
@@ -19,6 +19,12 @@ constexpr bool kRotorCcw[4] = {true, true, false, false};
 
 constexpr Color kWhite = {232, 232, 228, 255}, kCarbon = {38, 38, 42, 255}, kRed = {200, 30, 36, 255};
 constexpr Color kEdge = {20, 20, 20, 255}, kSuit = {50, 70, 110, 255}, kHelmet = {240, 240, 240, 255};
+
+// Avionics screen on a post above the nose, tilted to face the pilot's eye. Local frame: +x away from the
+// pilot (into the screen), +y up the screen, +z right.
+constexpr Vector3 kScreenCenter = {0.45f, 0.25f, 0.0f};
+constexpr float kScreenTiltDeg = -28.2f;  // about body z, so local +y points at the eye's elevation
+constexpr float kScreenHalfW = 0.12f, kScreenHalfH = 0.075f;
 
 inline void box(Vector3 c, Vector3 s, Color col) {
   DrawCubeV(c, s, col);
@@ -62,8 +68,51 @@ inline void pilot(const ControlMsg& ctl, bool head) {
   }
 }
 
-// Whole aircraft at state s. firstPerson hides the pilot's head; propAngle animates the blades (degrees).
-inline void draw(Vector3 pos, Quaternion q, const ControlMsg& ctl, bool firstPerson, bool spinning, float propAngle) {
+// Screen bezel plus the avionics render texture (raylib render textures are stored bottom-up, so v is flipped).
+inline void screen(Texture2D tex) {
+  rod({0.56f, 0.08f, 0}, {kScreenCenter.x + 0.03f, kScreenCenter.y - 0.04f, 0}, 0.015f, kCarbon);  // mount post
+  rlPushMatrix();
+  rlTranslatef(kScreenCenter.x, kScreenCenter.y, kScreenCenter.z);
+  rlRotatef(kScreenTiltDeg, 0, 0, 1);
+  box({0.012f, 0, 0}, {0.02f, 2 * kScreenHalfH + 0.03f, 2 * kScreenHalfW + 0.03f}, kCarbon);
+  const float x = -0.001f, h = kScreenHalfH, w = kScreenHalfW;
+  rlSetTexture(tex.id);
+  rlBegin(RL_QUADS);
+  rlColor4ub(255, 255, 255, 255);
+  rlNormal3f(-1, 0, 0);
+  rlTexCoord2f(0, 1); rlVertex3f(x, h, -w);   // top left, as the pilot sees it
+  rlTexCoord2f(0, 0); rlVertex3f(x, -h, -w);
+  rlTexCoord2f(1, 0); rlVertex3f(x, -h, w);
+  rlTexCoord2f(1, 1); rlVertex3f(x, h, w);
+  rlEnd();
+  rlSetTexture(0);
+  rlPopMatrix();
+}
+
+// Overhead roll cage: arched side rails from the nose up over the pilot to the rear hoop, with a front
+// crossbar. Its top (0.67 m) is the 1.12 m envelope height. Translucent mode keeps it out of the pilot's view.
+inline void cage(bool translucent) {
+  const Color col = translucent ? Color{232, 232, 228, 60} : kWhite;
+  constexpr float kTop = 0.67f, kZ = 0.25f, kFront = 0.15f, kRear = -0.36f;
+  for (float side : {-1.f, 1.f}) {
+    const float z = kZ * side;
+    // Quarter ellipse from the tub's front corner (0.55, 0.08) to the top of the rail.
+    Vector3 prev = {0.55f, 0.08f, z};
+    for (int i = 1; i <= 6; ++i) {
+      float a = i * (PI / 2) / 6;
+      Vector3 p = {kFront + 0.4f * std::cos(a), 0.08f + (kTop - 0.08f) * std::sin(a), z};
+      rod(prev, p, 0.022f, col);
+      prev = p;
+    }
+    rod(prev, {kRear, kTop, z}, 0.022f, col);
+  }
+  rod({kFront, kTop, -kZ}, {kFront, kTop, kZ}, 0.022f, col);
+}
+
+// Whole aircraft. firstPerson hides the pilot's head; propAngle animates the blades (degrees); avionics is the
+// screen texture; cageTranslucent ghosts the roll cage.
+inline void draw(Vector3 pos, Quaternion q, const ControlMsg& ctl, bool firstPerson, bool spinning, float propAngle,
+                 Texture2D avionics, bool cageTranslucent) {
   rlPushMatrix();
   rlTranslatef(pos.x, pos.y, pos.z);
   rlMultMatrixf(MatrixToFloat(QuaternionToMatrix(q)));
@@ -91,6 +140,7 @@ inline void draw(Vector3 pos, Quaternion q, const ControlMsg& ctl, bool firstPer
   }
 
   pilot(ctl, !firstPerson);
+  screen(avionics);
 
   // Arms out to the four stacked motor pairs.
   for (int i = 0; i < 4; ++i) {
@@ -106,6 +156,7 @@ inline void draw(Vector3 pos, Quaternion q, const ControlMsg& ctl, bool firstPer
     prop({r.x, r.y + 0.07f, r.z}, a + 30.0f * i, spinning);
     prop({r.x, r.y - 0.07f, r.z}, -a + 30.0f * i + 90.0f, spinning);
   }
+  cage(cageTranslucent);  // last: it may be translucent
   rlPopMatrix();
 }
 

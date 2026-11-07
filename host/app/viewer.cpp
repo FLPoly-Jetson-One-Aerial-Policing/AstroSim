@@ -1,12 +1,13 @@
 // raylib viewer: renders the vehicle from gateway State, sends Control from gamepad (preferred) or keyboard.
-// usage: viewer [host=127.0.0.1] [port=8765] [--cockpit] [--shot out.png] [--frames N]
-// C (or gamepad Y / triangle) toggles the cockpit and chase cameras.
+// usage: viewer [host=127.0.0.1] [port=8765] [--cockpit] [--ghost-cage] [--shot out.png] [--frames N]
+// C (or gamepad Y / triangle) toggles the cockpit and chase cameras; T toggles a see-through roll cage.
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <string>
 
+#include "avionics.hpp"
 #include "input_map.hpp"
 #include "jetson_one.hpp"
 #include "raylib.h"
@@ -97,9 +98,10 @@ static Camera3D cockpitCamera(Vector3 pos, Quaternion q) {
 int main(int argc, char** argv) {
   std::string host = "127.0.0.1", shot;
   int port = 8765, maxFrames = 0, positional = 0;
-  bool cockpit = false;
+  bool cockpit = false, cageTranslucent = false;
   for (int i = 1; i < argc; ++i) {
     if (!std::strcmp(argv[i], "--cockpit")) cockpit = true;
+    else if (!std::strcmp(argv[i], "--ghost-cage")) cageTranslucent = true;
     else if (!std::strcmp(argv[i], "--shot") && i + 1 < argc) shot = argv[++i];
     else if (!std::strcmp(argv[i], "--frames") && i + 1 < argc) maxFrames = std::atoi(argv[++i]);
     else if (positional == 0) { host = argv[i]; ++positional; }
@@ -113,7 +115,10 @@ int main(int argc, char** argv) {
   SetConfigFlags(FLAG_MSAA_4X_HINT);
   InitWindow(1280, 720, "AstroSim PoC viewer");
   SetTargetFPS(60);
+  RenderTexture2D screen = LoadRenderTexture(avionics::kWidth, avionics::kHeight);
+  SetTextureFilter(screen.texture, TEXTURE_FILTER_BILINEAR);
 
+  const std::string linkName = host + ":" + std::to_string(port);
   float camYaw = 0, propAngle = 0;
   int frame = 0;
   ControlMsg ctl;
@@ -137,6 +142,7 @@ int main(int argc, char** argv) {
       source = src == InputSource::Gamepad ? "gamepad" : "keyboard";
     }
     if (IsKeyPressed(KEY_C) || (pad >= 0 && IsGamepadButtonPressed(pad, GAMEPAD_BUTTON_RIGHT_FACE_UP))) cockpit = !cockpit;
+    if (IsKeyPressed(KEY_T)) cageTranslucent = !cageTranslucent;
     link.send(ctl);  // always send (zeros included): it is also the keepalive that registers us with the gateway
 
     // ---- state ----
@@ -156,6 +162,23 @@ int main(int argc, char** argv) {
     if (engine) propAngle = std::fmod(propAngle + 1500.0f * GetFrameTime(), 360.0f);
     Camera3D cam = cockpit ? cockpitCamera(target, q) : chaseCamera(target, camYaw);
 
+    avionics::Data av;
+    av.status = !alive ? "NO GATEWAY" : (!engine ? "ENGINE DOWN" : "CONNECTED");
+    av.statusColor = engine ? GREEN : (alive ? ORANGE : RED);
+    av.link = linkName.c_str();
+    av.input = source;
+    av.gamepad = src == InputSource::Gamepad;
+    av.alt = s.pos[2] - jetson::kRideHeight;
+    av.speed = speed;
+    av.vs = s.vel[2];
+    av.tilt = tilt;
+    av.simTime = s.sim_time;
+    av.ctl = ctl;
+    avionics::attitude(s.quat, av.pitch, av.roll, av.heading);
+    BeginTextureMode(screen);
+    avionics::draw(av);
+    EndTextureMode();
+
     BeginDrawing();
     ClearBackground({135, 175, 215, 255});
     BeginMode3D(cam);
@@ -169,22 +192,18 @@ int main(int argc, char** argv) {
       rlPopMatrix();
       if (!cockpit) DrawLine3D({target.x, 0, target.z}, target, {255, 255, 255, 120});  // altitude line
     }
-    jetson::draw(target, q, ctl, cockpit, engine, propAngle);
+    jetson::draw(target, q, ctl, cockpit, engine, propAngle, screen.texture, cageTranslucent);
     EndMode3D();
 
-    const char* status = !alive ? "NO GATEWAY" : (!engine ? "ENGINE DOWN" : "CONNECTED");
-    Color sc = engine ? GREEN : (alive ? ORANGE : RED);
-    DrawRectangle(10, 10, 330, 190, {0, 0, 0, 140});
-    DrawText(TextFormat("%s  %s:%d", status, host.c_str(), port), 20, 18, 20, sc);
-    DrawText(TextFormat("alt   %6.2f m", s.pos[2] - jetson::kRideHeight), 20, 48, 20, WHITE);
-    DrawText(TextFormat("speed %6.2f m/s", speed), 20, 72, 20, WHITE);
-    DrawText(TextFormat("tilt  %6.1f deg", tilt), 20, 96, 20, WHITE);
-    DrawText(TextFormat("sim t %6.1f s", s.sim_time), 20, 120, 20, WHITE);
-    DrawText(TextFormat("input: %s", source), 20, 148, 20, src == InputSource::Gamepad ? SKYBLUE : YELLOW);
-    DrawText(TextFormat("thr %+.2f yaw %+.2f", ctl.throttle, ctl.yaw), 20, 172, 16, LIGHTGRAY);
-    DrawText(TextFormat("pit %+.2f rol %+.2f", ctl.pitch, ctl.roll), 190, 172, 16, LIGHTGRAY);
-    if (!engine) DrawText(alive ? "ENGINE DOWN - holding" : "waiting for gateway...", 400, 230, 36, sc);
-    DrawText(src == InputSource::Gamepad ? "L: throttle/yaw   R: pitch/roll   Y: camera" : "WASD: throttle/yaw   Arrows: pitch/roll   C: camera",
+    // The avionics screen is readable in the cockpit; from the chase camera, show the same display as an inset.
+    if (!cockpit) {
+      const float w = avionics::kWidth * 0.8f, h = avionics::kHeight * 0.8f;
+      DrawTexturePro(screen.texture, {0, 0, static_cast<float>(avionics::kWidth), -static_cast<float>(avionics::kHeight)},
+                     {10, 10, w, h}, {0, 0}, 0, WHITE);
+    }
+    if (!engine) DrawText(alive ? "ENGINE DOWN - holding" : "waiting for gateway...", 440, 300, 36, av.statusColor);
+    DrawText(src == InputSource::Gamepad ? "L: throttle/yaw   R: pitch/roll   Y: camera   T: cage"
+                                         : "WASD: throttle/yaw   Arrows: pitch/roll   C: camera   T: cage",
              20, 690, 18, WHITE);
     DrawText(cockpit ? "COCKPIT" : "CHASE", 1180, 18, 20, WHITE);
     EndDrawing();
@@ -195,6 +214,7 @@ int main(int argc, char** argv) {
     }
   }
   link.send(ControlMsg{});
+  UnloadRenderTexture(screen);
   CloseWindow();
   return 0;
 }
