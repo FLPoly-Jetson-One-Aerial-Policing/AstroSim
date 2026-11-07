@@ -1,6 +1,6 @@
 // raylib viewer: renders the vehicle from gateway State, sends Control from gamepad (preferred) or keyboard.
 // usage: viewer [host=127.0.0.1] [port=8765] [--cockpit] [--ghost-cage] [--shot out.png] [--frames N]
-// C (or gamepad Y / triangle) toggles the cockpit and chase cameras; T toggles a see-through roll cage.
+// C (gamepad Y / triangle) toggles the cockpit and chase cameras; T (gamepad X / square) toggles a see-through roll cage.
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
@@ -112,7 +112,7 @@ int main(int argc, char** argv) {
   UdpLink link(host, static_cast<uint16_t>(port));
   if (!link.ok()) { std::fprintf(stderr, "viewer: bad host/port %s:%d\n", host.c_str(), port); return 1; }
 
-  SetConfigFlags(FLAG_MSAA_4X_HINT);
+  SetConfigFlags(FLAG_MSAA_4X_HINT | FLAG_WINDOW_RESIZABLE);
   InitWindow(1280, 720, "AstroSim PoC viewer");
   SetTargetFPS(60);
   RenderTexture2D screen = LoadRenderTexture(avionics::kWidth, avionics::kHeight);
@@ -142,7 +142,8 @@ int main(int argc, char** argv) {
       source = src == InputSource::Gamepad ? "gamepad" : "keyboard";
     }
     if (IsKeyPressed(KEY_C) || (pad >= 0 && IsGamepadButtonPressed(pad, GAMEPAD_BUTTON_RIGHT_FACE_UP))) cockpit = !cockpit;
-    if (IsKeyPressed(KEY_T)) cageTranslucent = !cageTranslucent;
+    if (IsKeyPressed(KEY_T) || (pad >= 0 && IsGamepadButtonPressed(pad, GAMEPAD_BUTTON_RIGHT_FACE_LEFT)))
+      cageTranslucent = !cageTranslucent;
     link.send(ctl);  // always send (zeros included): it is also the keepalive that registers us with the gateway
 
     // ---- state ----
@@ -201,11 +202,17 @@ int main(int argc, char** argv) {
       DrawTexturePro(screen.texture, {0, 0, static_cast<float>(avionics::kWidth), -static_cast<float>(avionics::kHeight)},
                      {10, 10, w, h}, {0, 0}, 0, WHITE);
     }
-    if (!engine) DrawText(alive ? "ENGINE DOWN - holding" : "waiting for gateway...", 440, 300, 36, av.statusColor);
-    DrawText(src == InputSource::Gamepad ? "L: throttle/yaw   R: pitch/roll   Y: camera   T: cage"
+    // HUD text anchors to the current window size (it can be resized or fullscreened).
+    const int sw = GetScreenWidth(), sh = GetScreenHeight();
+    if (!engine) {
+      const char* msg = alive ? "ENGINE DOWN - holding" : "waiting for gateway...";
+      DrawText(msg, (sw - MeasureText(msg, 36)) / 2, sh * 5 / 12, 36, av.statusColor);
+    }
+    DrawText(src == InputSource::Gamepad ? "L: throttle/yaw   R: pitch/roll   Y: camera   X: cage"
                                          : "WASD: throttle/yaw   Arrows: pitch/roll   C: camera   T: cage",
-             20, 690, 18, WHITE);
-    DrawText(cockpit ? "COCKPIT" : "CHASE", 1180, 18, 20, WHITE);
+             20, sh - 30, 18, WHITE);
+    const char* camName = cockpit ? "COCKPIT" : "CHASE";
+    DrawText(camName, sw - 20 - MeasureText(camName, 20), 18, 20, WHITE);
     EndDrawing();
 
     if (maxFrames && ++frame >= maxFrames) {
