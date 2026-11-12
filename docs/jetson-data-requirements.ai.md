@@ -4,7 +4,7 @@ Scope: everything needed to build a production simulator that hosts Jetson's own
 
 Each table has a plain-English column explaining why the item matters.
 
-Display technology (flat screen, headset, projection) and the rendering framework are not yet decided; this list assumes none of them.
+VR is a first-class target. The rendering framework and graphics/XR stack are not yet decided; this list assumes none of them.
 
 Priority: **P0** blocks implementation. **P1** needed for fidelity. **P2** nice to have.
 Each item has an ID.
@@ -70,7 +70,7 @@ For each signal: name, type, units, frame, rate, range, and behaviour on stale/i
 | ID | Item | Why we need it (plain English) | Pri |
 | --- | --- | --- | --- |
 | A6.1 | Display hardware: size, resolution, pixel format, refresh rate | The physical size and sharpness of the real screen, so ours looks right. | P0 |
-| A6.2 | Rendering path: framebuffer, GL/Vulkan, widget toolkit; whether the sim can supply the drawing surface (or the software can output an image/frame buffer we display ourselves) | How the screen software draws its picture. We need to be able to show that picture in the simulator, whichever display technology we end up using. | P0 |
+| A6.2 | Rendering path: framebuffer, GL/Vulkan, widget toolkit; whether the sim can supply the surface or texture, or the software can output an image/frame buffer we display ourselves | How the screen software draws its picture. We need to place that picture inside our simulated cockpit, including the VR view. | P0 |
 | A6.3 | Inputs to the display: bus messages from FC, touch/button input | What feeds the screen: data from the flight computer, and any buttons or touch. | P0 |
 | A6.4 | Page/screen inventory, instrument layout, units | A list of every screen page and where each instrument sits, so we reproduce what the pilot sees. | P0 |
 | A6.5 | Complete alert/caution/warning list: priority, text, colour, audio cue, trigger condition | Every warning, its wording, colour, sound and the condition that triggers it. Pilots train to react to these exactly. | P0 |
@@ -135,7 +135,7 @@ Purpose: a correctly scaled visual and collision model of the aircraft. Fallback
 | B2.4 | Units, origin and axis convention of the files, and the reference point on the aircraft that the origin corresponds to | Tells us what size unit and which direction is 'forward' in the files so the model isn't scaled or rotated wrongly. | P1 |
 | B2.5 | Whether the CAD is separable by component (frame, each arm, each motor, each prop, seat, controls, display, battery bays), with assembly hierarchy and part names, so parts can be animated or assigned masses | Separate parts let us make propellers spin and assign weights to individual components. | P1 |
 | B2.6 | Moving-part definitions: propeller hubs and rotation axes, control lever and stick pivot points and travel, any hinged or folding parts (folded vs. flight configuration) | Which parts move (propellers, stick, lever, fold points) and around what pivots. | P1 |
-| B2.7 | Cockpit interior detail: seat, harness, stick, throttle lever, pedals, display mount, switch panel, instrument position, at a quality suitable for a close-up first-person view (flat screen or headset) | The pilot looks at the cockpit from the inside, possibly from very close, so the interior has to be accurate, not just the outside. | P1 |
+| B2.7 | Cockpit interior detail: seat, harness, stick, throttle lever, pedals, display mount, switch panel, instrument position, at a quality suitable for a VR viewpoint | The pilot sits inside the cockpit in VR, so the interior has to be accurate, not just the outside. | P1 |
 | B2.8 | Materials and finish: colours (paint codes or RAL), carbon-fibre weave areas, decals/livery files, logo artwork, and any texture or reference photography | Colours, finishes, logos and livery, so the model looks like the real aircraft. | P2 |
 | B2.9 | Prop and blade geometry as a mesh and/or airfoil section definition (also used for B3.3) | Propeller shape affects both how it looks and how much thrust it makes. | P1 |
 | B2.10 | Variant list: production vs. earlier prototype, colour/trim options, optional equipment, and which variant the CAD represents | Several versions of the aircraft exist. We need to know which one the files show. | P1 |
@@ -209,7 +209,7 @@ Purpose: a correctly scaled visual and collision model of the aircraft. Fallback
 | B8.2 | Raw sensor characteristics: resolution, deadband, noise, calibration, centring | Electrical behaviour of the controls, such as dead zones and noise. | P1 |
 | B8.3 | Force/spring rates | How heavy the controls feel, if we build a physical cockpit. | P2 |
 | B8.4 | Switch guards and sequences (arm, mode, parachute) | Switch guards and sequences, such as how the parachute is deployed. | P1 |
-| B8.5 | Cockpit geometry: stick, lever, seat and eye-to-instrument distances | Distances in the cockpit, so the pilot's view (on any kind of display) has everything where they expect it. | P1 |
+| B8.5 | Cockpit geometry for the VR rig: stick, lever, seat and eye-to-instrument distances | Distances in the cockpit, so the VR view puts everything where the pilot expects. | P1 |
 
 ### B9. Failures and safety systems
 
@@ -284,7 +284,7 @@ Requests to make in any contingency, even if the binary is refused:
 | --- | --- | --- |
 | Can a SITL/Linux build exist? | SITL (A1.1) vs. HIL (D3) | Whether their software can run on an ordinary computer, or only on aircraft hardware. If not, we need the real unit. |
 | Step function with injectable time, or threaded black box? | Whether faster-than-real-time and deterministic tests are possible; adapter complexity | Whether we can control their software's clock. If we can, tests run faster and are repeatable. |
-| Avionics as render-to-texture component, or full-screen only? | Whether it can be embedded in a simulated cockpit view, regardless of display technology | Whether the cockpit screen can be placed inside our virtual cockpit, or only runs as a full-screen app. |
+| Avionics as render-to-texture component, or full-screen only? | Whether it can be embedded in a VR cockpit | Whether the cockpit screen can be placed inside our virtual cockpit, or only runs as a full-screen app. |
 | Raw sensors in, or fused state in? | How much sensor modelling (B7) the engine must carry; whether a sim-truth state can be fed in early | Whether the computer wants raw sensor data (more work for us, more realistic) or a finished position and attitude. |
 | Motor command semantics (normalised, RPM, torque)? | The motor model interface and the number of actuator channels (8) | What the motor numbers mean, which sets how we build the motor model. |
 | How are the 8 motors and 3 lanes exposed? | Whether the engine models 4 stacked-pair rotors or 8 independent rotors | How closely we need to model the paired motors and the three-way computer redundancy. |
