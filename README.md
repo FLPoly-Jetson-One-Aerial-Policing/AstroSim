@@ -11,7 +11,7 @@ AstroSim is a flight simulator for the **Jetson ONE**, a single-seat electric ai
 | Physics engine | Works out where the aircraft goes, given how hard each motor is pushing | **Working** (with a placeholder aircraft model) |
 | Flight computer | Turns the pilot's controls into motor commands, as the real aircraft's onboard computer does | Not started (will start with the open-source PX4 autopilot) |
 | Display | Shows the aircraft and the world, on a screen or in a VR headset | Not started (likely Unity) |
-| Aircraft model | The simulated Jetson ONE: size, weight, motor positions | Placeholder; to be rebuilt from manufacturer data |
+| Aircraft model | The simulated Jetson ONE: size, weight, motor positions | Generated from an aircraft data file (best-guess values; to be replaced with manufacturer data) |
 
 ## How it fits together
 
@@ -59,3 +59,4 @@ Press `Ctrl+C` to stop either command.
 | Build, configure or run the engine | [gazebo-container/README.md](gazebo-container/README.md) |
 | Write a flight computer or display that talks to the engine | [shared/proto/PROTOCOL.md](shared/proto/PROTOCOL.md) |
 | Understand the background research and design decisions | [docs/](docs/) |
+| Edit the aircraft data file (schema, units, keys) | [shared/aircraft/AIRCRAFT.md](shared/aircraft/AIRCRAFT.md) |

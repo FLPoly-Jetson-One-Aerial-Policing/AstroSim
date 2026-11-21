@@ -46,18 +46,21 @@ include(GNUInstallDirs)
 install(TARGETS astrosim-modelgen RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
 
 add_library(astrosim_gateway_core STATIC
+  gateway/binding.cpp
   gateway/config.cpp
   gateway/gateway.cpp
   gateway/log.cpp
   gateway/transport.cpp)
 target_include_directories(astrosim_gateway_core PUBLIC gateway)
-target_link_libraries(astrosim_gateway_core PUBLIC astrosim::proto tomlplusplus::tomlplusplus)
+target_link_libraries(astrosim_gateway_core PUBLIC astrosim::proto astrosim::aircraft tomlplusplus::tomlplusplus)
+# gz_names.hpp is shared with the generator (header-only, gz-free).
+target_include_directories(astrosim_gateway_core PUBLIC modelgen)
 astrosim_warnings(astrosim_gateway_core)
 
 if(ASTROSIM_BUILD_TESTS)
   find_package(GTest REQUIRED)
   include(GoogleTest)
-  foreach(name test_gateway test_config)
+  foreach(name test_gateway test_config test_binding)
     add_executable(${name} tests/${name}.cpp)
     target_link_libraries(${name} PRIVATE astrosim_gateway_core GTest::gtest_main)
     astrosim_warnings(${name})
@@ -65,6 +68,7 @@ if(ASTROSIM_BUILD_TESTS)
   endforeach()
   target_compile_definitions(test_config PRIVATE
     ASTROSIM_GATEWAY_TOML="${CMAKE_CURRENT_SOURCE_DIR}/config/gateway.toml")
+  target_compile_definitions(test_binding PRIVATE ASTROSIM_AIRCRAFT_TOML="${ASTROSIM_AIRCRAFT_TOML}")
 
   add_executable(test_modelgen tests/test_modelgen.cpp)
   target_link_libraries(test_modelgen PRIVATE astrosim_modelgen_core GTest::gtest_main)

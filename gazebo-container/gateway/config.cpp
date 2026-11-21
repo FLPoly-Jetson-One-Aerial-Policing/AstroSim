@@ -9,7 +9,6 @@
 #include <format>
 #include <fstream>
 #include <initializer_list>
-#include <set>
 #include <sstream>
 
 #include <toml++/toml.hpp>
@@ -179,25 +178,6 @@ void readTiming(const toml::table& root, const EnvLookup& env, Config::Timing& o
   out.stats_interval_s = r.getPositive("stats_interval_s", out.stats_interval_s);
 }
 
-void readEngine(const toml::table& root, const EnvLookup& env, Config::Engine& out) {
-  const toml::table* t = sectionTable(root, "engine");
-  if (t)
-    rejectUnknownKeys(*t, "engine",
-                      {"model", "odometry_topic", "motor_command_topic", "motor_speed_topic", "motor_joint_name",
-                       "motor_speed_scale"});
-  const SectionReader r(t, "engine", env);
-  out.model = r.getString("model", out.model);
-  out.odometry_topic = r.getString("odometry_topic", out.odometry_topic);
-  out.motor_command_topic = r.getString("motor_command_topic", out.motor_command_topic);
-  out.motor_speed_topic = r.getString("motor_speed_topic", out.motor_speed_topic);
-  out.motor_joint_name = r.getString("motor_joint_name", out.motor_joint_name);
-  if (!out.motor_speed_topic.empty() && out.motor_joint_name.find("{actuator}") == std::string::npos) {
-    fail("engine.motor_joint_name",
-         std::format("must contain the placeholder {{actuator}} (got '{}')", out.motor_joint_name));
-  }
-  out.motor_speed_scale = r.getPositive("motor_speed_scale", out.motor_speed_scale);
-}
-
 void readLog(const toml::table& root, const EnvLookup& env, Config::Log& out) {
   const toml::table* t = sectionTable(root, "log");
   if (t) rejectUnknownKeys(*t, "log", {"level"});
@@ -205,38 +185,6 @@ void readLog(const toml::table& root, const EnvLookup& env, Config::Log& out) {
   out.level = r.getString("level", out.level);
   if (!log::parseLevel(out.level)) {
     fail("log.level", std::format("must be one of trace, debug, info, warn, error (got '{}')", out.level));
-  }
-}
-
-/** @brief Read the required [[motor]] array: exactly kNumMotors entries with unique actuator indices. */
-void readMotors(const toml::table& root, std::array<Config::Motor, proto::kNumMotors>& out) {
-  const toml::array* arr = root.get_as<toml::array>("motor");
-  if (!arr || !arr->is_array_of_tables())
-    fail("motor", std::format("expected {} [[motor]] entries (got 0)", proto::kNumMotors));
-  if (arr->size() != proto::kNumMotors) {
-    fail("motor", std::format("expected exactly {} [[motor]] entries (got {})", proto::kNumMotors, arr->size()));
-  }
-  std::set<int> seen;
-  for (std::size_t i = 0; i < arr->size(); ++i) {
-    const toml::table& m = *arr->get(i)->as_table();
-    const std::string where = std::format("motor[{}]", i);
-    rejectUnknownKeys(m, where, {"actuator_index", "max_rad_s"});
-
-    const auto idx = m.get("actuator_index");
-    if (!idx || !idx->is_integer()) fail(where + ".actuator_index", "required integer");
-    const auto idx_v = *idx->value<std::int64_t>();
-    if (idx_v < 0 || idx_v > 1'000'000) fail(where + ".actuator_index", std::format("must be >= 0 (got {})", idx_v));
-    if (!seen.insert(static_cast<int>(idx_v)).second) {
-      fail(where + ".actuator_index", std::format("must be unique (got duplicate {})", idx_v));
-    }
-
-    const auto rad = m.get("max_rad_s");
-    if (!rad || !rad->is_number()) fail(where + ".max_rad_s", "required number");
-    const double rad_v = *rad->value<double>();
-    if (!std::isfinite(rad_v) || rad_v <= 0)
-      fail(where + ".max_rad_s", std::format("must be > 0 and finite (got {})", rad_v));
-
-    out[i] = {static_cast<int>(idx_v), rad_v};
   }
 }
 
@@ -249,13 +197,11 @@ Config parseConfig(std::string_view toml_text, const EnvLookup& env) {
   } catch (const toml::parse_error& e) {
     throw ConfigError(std::format("TOML syntax error: {}", e.description()));
   }
-  rejectUnknownKeys(root, "", {"network", "timing", "engine", "motor", "log"});
+  rejectUnknownKeys(root, "", {"network", "timing", "log"});
 
   Config cfg;
   readNetwork(root, env, cfg.network);
   readTiming(root, env, cfg.timing);
-  readEngine(root, env, cfg.engine);
-  readMotors(root, cfg.motors);
   readLog(root, env, cfg.log);
   return cfg;
 }

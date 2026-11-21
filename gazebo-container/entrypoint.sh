@@ -1,15 +1,19 @@
 #!/bin/bash
-# Starts gz-sim-server and the gateway; if either exits, stops the other and exits with the first one's status.
-# Usage: entrypoint.sh GZ_SIM_VERSION   (config path: $ASTROSIM_CONFIG)
+# Generates the gazebo model from the aircraft file, then starts gz-sim-server and the gateway; if either exits, stops the other and exits with the first one's status.
+# Usage: entrypoint.sh GZ_SIM_VERSION   (config path: $ASTROSIM_CONFIG, aircraft file: $ASTROSIM_AIRCRAFT)
 set -euo pipefail
 
 GZ_SIM_VER="${1:-${GZ_SIM_VER:?GZ_SIM_VER or first argument required}}"
 WORLD_FILE="/opt/astrosim/worlds/default.sdf"
 CONFIG="${ASTROSIM_CONFIG:-/opt/astrosim/config/gateway.toml}"
+AIRCRAFT="${ASTROSIM_AIRCRAFT:-/opt/astrosim/config/jetson_one.toml}"
+
+# Generate the model before gz starts; an invalid aircraft file stops the container here (status 2).
+astrosim-modelgen --aircraft "${AIRCRAFT}" --out /tmp/astrosim/models || exit $?
 
 "/usr/libexec/gz/sim${GZ_SIM_VER}/gz-sim-server" -r "${WORLD_FILE}" &
 GZ=$!
-gateway --config "${CONFIG}" &
+gateway --config "${CONFIG}" --aircraft "${AIRCRAFT}" &
 GW=$!
 
 # Forward termination to both children; the wait below then returns.

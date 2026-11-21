@@ -5,8 +5,8 @@ computer sends **Control** (power for 8 motors); displays receive **State** (pos
 sim time). Gazebo and its transport never leave the container: the only interface is one UDP port. The protocol is
 specified in [../shared/proto/PROTOCOL.md](../shared/proto/PROTOCOL.md).
 
-The world (`worlds/default.sdf`) and model (`models/jetson_one`) are placeholders (four rotors; protocol motors
-4-7 are ignored by the model).
+The world (`worlds/default.sdf`) holds only the ground, light and physics settings. The aircraft model is generated
+at container start from an aircraft data file (see [Aircraft data](#aircraft-data)).
 
 ## Build
 
@@ -30,8 +30,8 @@ The container runs as a non-root user and stops cleanly on `docker stop` (motors
 ## Configuration
 
 `config/gateway.toml` (installed at `/opt/astrosim/config/gateway.toml`) holds the defaults. Every scalar key can
-be overridden by an environment variable `ASTROSIM_<SECTION>_<KEY>` (upper case). The `[[motor]]` array is file
-only. Invalid configuration prints an error naming the key and the container exits with status 2.
+be overridden by an environment variable `ASTROSIM_<SECTION>_<KEY>` (upper case). Motor data is not part of this file; it
+comes from the aircraft file. Invalid configuration prints an error naming the key and the container exits with status 2.
 
 | Key | Default | Environment variable | Meaning |
 |-|-|-|-|
@@ -44,14 +44,7 @@ only. Invalid configuration prints an error naming the key and the container exi
 | `timing.subscriber_timeout_s` | 5 | `ASTROSIM_TIMING_SUBSCRIBER_TIMEOUT_S` | Subscriber silent this long: dropped |
 | `timing.engine_stale_s` | 0.5 | `ASTROSIM_TIMING_ENGINE_STALE_S` | Odometry older than this clears ENGINE_OK |
 | `timing.stats_interval_s` | 10 | `ASTROSIM_TIMING_STATS_INTERVAL_S` | Period of the stats log line |
-| `engine.model` | "jetson_one" | `ASTROSIM_ENGINE_MODEL` | Model name |
-| `engine.odometry_topic` | "/model/jetson_one/odometry" | `ASTROSIM_ENGINE_ODOMETRY_TOPIC` | gz Odometry topic |
-| `engine.motor_command_topic` | "/jetson_one/gazebo/command/motor_speed" | `ASTROSIM_ENGINE_MOTOR_COMMAND_TOPIC` | gz Actuators command topic |
-| `engine.motor_speed_topic` | "/jetson_one/joint_state" | `ASTROSIM_ENGINE_MOTOR_SPEED_TOPIC` | gz Model topic with the rotor joint velocities; empty disables motor speed feedback |
-| `engine.motor_joint_name` | "jetson_one/rotor_{actuator}_joint" | `ASTROSIM_ENGINE_MOTOR_JOINT_NAME` | Joint name per motor; `{actuator}` is replaced by the actuator index |
-| `engine.motor_speed_scale` | 10 | `ASTROSIM_ENGINE_MOTOR_SPEED_SCALE` | Joint velocity times this = rotor rad/s (the motor model's `rotorVelocitySlowdownSim`) |
 | `log.level` | "info" | `ASTROSIM_LOG_LEVEL` | trace, debug, info, warn, error |
-| `[[motor]]` x8 | identity, 800 | (file only) | Protocol motor i (array order) to `actuator_index`, and `max_rad_s` at power 1.0 |
 
 To use a custom file, mount it and point `ASTROSIM_CONFIG` at it:
 
@@ -61,6 +54,24 @@ docker run --rm -p 8765:8765/udp -v $PWD/my.toml:/etc/astrosim.toml:ro \
 ```
 
 Changing `network.port` also requires publishing that port (`-p 9000:9000/udp`).
+
+## Aircraft data
+
+The aircraft's physical data (mass properties, collision shapes, rotors, drag) lives in one TOML file. The image
+ships `shared/aircraft/jetson_one.toml` (best-guess values) at `/opt/astrosim/config/jetson_one.toml`.
+Every key is required; a missing, unknown or out-of-range key stops the container with exit status 2 and a message
+naming the key. The schema and the list of keys to replace with manufacturer data are in
+[../shared/aircraft/AIRCRAFT.md](../shared/aircraft/AIRCRAFT.md).
+
+At start, `astrosim-modelgen` generates the Gazebo model (`model://aircraft`, into `/tmp/astrosim/models`) from
+this file, and the gateway reads its motor count and maximum rotor speeds from the same file. The aircraft must
+have exactly 8 motors (the protocol's motor count). To fly different values, mount a file and point
+`ASTROSIM_AIRCRAFT` at it; no rebuild is needed:
+
+```sh
+docker run --rm -p 8765:8765/udp -v $PWD/my-aircraft.toml:/etc/aircraft.toml:ro \
+  -e ASTROSIM_AIRCRAFT=/etc/aircraft.toml astrosim-engine
+```
 
 ## astrosim-probe
 

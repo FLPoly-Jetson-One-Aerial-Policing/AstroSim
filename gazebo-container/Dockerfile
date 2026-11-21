@@ -7,7 +7,7 @@
 #
 # Stages:
 #   build   dev packages, unit tests under ASan/UBSan (the build fails if a test fails), then a Release build
-#   runtime gz-sim server + runtime libraries only, the gateway binaries, config, world and models
+#   runtime gz-sim server + runtime libraries only, the gateway binaries, model generator, config, world and aircraft file
 ARG UBUNTU_TAG=26.04
 
 # ---------------------------------------------------------------------------------------------------------------
@@ -64,7 +64,7 @@ ARG GZ_MSGS_VER=12
 
 ENV DEBIAN_FRONTEND=noninteractive \
     GZ_SIM_VER=${GZ_SIM_VER} \
-    GZ_SIM_RESOURCE_PATH=/opt/astrosim/models:/opt/astrosim/worlds \
+    GZ_SIM_RESOURCE_PATH=/tmp/astrosim/models:/opt/astrosim/worlds \
     HOME=/home/astrosim
 
 RUN apt-get update \
@@ -82,12 +82,12 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/* \
     && useradd --create-home --home-dir /home/astrosim --shell /usr/sbin/nologin --uid 10001 astrosim
 
-COPY --from=build /opt/stage/bin/gateway /opt/stage/bin/astrosim-probe /usr/local/bin/
+COPY --from=build /opt/stage/bin/gateway /opt/stage/bin/astrosim-probe /opt/stage/bin/astrosim-modelgen /usr/local/bin/
 
 WORKDIR /opt/astrosim
 COPY gazebo-container/config/ /opt/astrosim/config/
 COPY gazebo-container/worlds/ /opt/astrosim/worlds/
-COPY gazebo-container/models/ /opt/astrosim/models/
+COPY shared/aircraft/jetson_one.toml /opt/astrosim/config/jetson_one.toml
 COPY --chmod=755 gazebo-container/entrypoint.sh /opt/astrosim/entrypoint.sh
 
 USER astrosim
