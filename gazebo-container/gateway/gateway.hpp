@@ -15,13 +15,16 @@
 #include <string>
 #include <vector>
 
+#include "astrosim/log/log.hpp"
+#include "astrosim/net/transport.hpp"
 #include "astrosim/proto/wire.hpp"
 #include "config.hpp"
 #include "engine.hpp"
-#include "log.hpp"
-#include "transport.hpp"
 
 namespace astrosim::gateway {
+
+using net::Datagram;  ///< Datagram type from the shared transport abstraction.
+using net::Endpoint;  ///< Endpoint type from the shared transport abstraction.
 
 using Clock = std::chrono::steady_clock;  ///< Monotonic clock used for all gateway timing.
 using TimePoint = Clock::time_point;      ///< A point in time on Clock.

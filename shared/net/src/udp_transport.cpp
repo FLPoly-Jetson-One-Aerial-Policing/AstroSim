@@ -1,5 +1,5 @@
 /** @file udp_transport.cpp @brief POSIX UDP transport. */
-#include "udp_transport.hpp"
+#include "astrosim/net/udp_transport.hpp"
 
 #include <arpa/inet.h>
 #include <fcntl.h>
@@ -16,7 +16,7 @@
 
 #include "astrosim/proto/wire.hpp"
 
-namespace astrosim::gateway {
+namespace astrosim::net {
 
 namespace {
 constexpr std::size_t kRecvBuffer = 2048;  // > kMaxDatagramSize so oversize datagrams are detected
@@ -91,4 +91,4 @@ void UdpTransport::send(const Endpoint& to, std::span<const std::byte> bytes) {
   }
 }
 
-}  // namespace astrosim::gateway
+}  // namespace astrosim::net

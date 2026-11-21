@@ -1,6 +1,6 @@
 /**
  * @file main.cpp
- * @brief Engine gateway executable: wires config, GzEngine, UdpTransport and Gateway into a poll() event loop.
+ * @brief Engine gateway executable: wires config, GzEngine, net::UdpTransport and Gateway into a poll() event loop.
  */
 #include <poll.h>
 
@@ -18,12 +18,12 @@
 #include <system_error>
 
 #include "astrosim/aircraft/aircraft.hpp"
+#include "astrosim/log/log.hpp"
+#include "astrosim/net/udp_transport.hpp"
 #include "binding.hpp"
 #include "config.hpp"
 #include "gateway.hpp"
 #include "gz_engine.hpp"
-#include "log.hpp"
-#include "udp_transport.hpp"
 
 namespace {
 
@@ -78,7 +78,7 @@ void logConfig(const Config& c, const aircraft::Aircraft& a, const MotorBinding&
  * @param gw Gateway logic.
  * @param cfg Configuration (rates).
  */
-void run(UdpTransport& transport, Gateway& gw, const Config& cfg) {
+void run(net::UdpTransport& transport, Gateway& gw, const Config& cfg) {
   using SteadyClock = std::chrono::steady_clock;
   const auto period =
       std::chrono::duration_cast<SteadyClock::duration>(std::chrono::duration<double>(1.0 / cfg.timing.state_rate_hz));
@@ -179,7 +179,7 @@ int main(int argc, char** argv) {
   try {
     installSignalHandlers();
     GzEngine engine(cfg, binding);
-    UdpTransport transport(cfg.network.bind, cfg.network.port);
+    net::UdpTransport transport(cfg.network.bind, cfg.network.port);
     Gateway gw(engine, cfg);
     log::info("listening on {}:{}", cfg.network.bind, cfg.network.port);
 

@@ -3,8 +3,9 @@
  * @file transport.hpp
  * @brief Datagram endpoint and transport abstraction.
  *
- * The Gateway core uses only Endpoint and Datagram. The event loop in main.cpp moves bytes between a Transport
- * (UdpTransport in production) and the Gateway, which keeps the core free of sockets and testable.
+ * Pure, OS-free abstraction (no socket headers). A pure-logic core, such as the engine Gateway or the flight
+ * computer bridge, uses only Endpoint, Datagram and Transport. The event loop moves bytes between a Transport
+ * (UdpTransport in production) and the core, which keeps the core free of sockets and testable.
  */
 #include <compare>
 #include <cstddef>
@@ -14,7 +15,7 @@
 #include <string>
 #include <vector>
 
-namespace astrosim::gateway {
+namespace astrosim::net {
 
 /// @brief An IPv4 endpoint, in host byte order.
 struct Endpoint {
@@ -59,4 +60,4 @@ class Transport {
   virtual void send(const Endpoint& to, std::span<const std::byte> bytes) = 0;
 };
 
-}  // namespace astrosim::gateway
+}  // namespace astrosim::net

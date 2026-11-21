@@ -12,7 +12,7 @@
 #include <unordered_map>
 #include <utility>
 
-namespace astrosim::gateway::log {
+namespace astrosim::log {
 
 /** @brief Message severity, ordered from most to least verbose. */
 enum class Level {
@@ -124,4 +124,4 @@ class RateLimiter {
   std::unordered_map<std::string, Entry> entries_;
 };
 
-}  // namespace astrosim::gateway::log
+}  // namespace astrosim::log

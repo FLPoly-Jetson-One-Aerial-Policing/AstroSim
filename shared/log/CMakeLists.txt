@@ -1,0 +1,45 @@
+cmake_minimum_required(VERSION 3.16)
+project(astrosim_log LANGUAGES CXX)
+
+set(CMAKE_CXX_STANDARD 20)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_CXX_EXTENSIONS OFF)
+
+if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
+  set(_astrosim_log_top_level ON)
+else()
+  set(_astrosim_log_top_level OFF)
+endif()
+
+option(ASTROSIM_LOG_BUILD_TESTS "Build the astrosim_log tests" ${_astrosim_log_top_level})
+option(ASTROSIM_SANITIZE "Build with AddressSanitizer and UBSan (GCC/Clang)" OFF)
+
+# Warnings and sanitizers apply to this project's own targets only.
+function(astrosim_log_configure target)
+  if(MSVC)
+    target_compile_options(${target} PRIVATE /W4 /WX)
+  else()
+    target_compile_options(${target} PRIVATE -Wall -Wextra -Wpedantic -Werror)
+    if(ASTROSIM_SANITIZE)
+      target_compile_options(${target} PRIVATE -fsanitize=address,undefined -fno-omit-frame-pointer)
+      target_link_options(${target} PRIVATE -fsanitize=address,undefined)
+    endif()
+  endif()
+endfunction()
+
+add_library(astrosim_log src/log.cpp)
+add_library(astrosim::log ALIAS astrosim_log)
+target_include_directories(astrosim_log PUBLIC include)
+target_compile_features(astrosim_log PUBLIC cxx_std_20)
+astrosim_log_configure(astrosim_log)
+
+if(ASTROSIM_LOG_BUILD_TESTS)
+  enable_testing()
+  find_package(GTest REQUIRED)
+  include(GoogleTest)
+
+  add_executable(astrosim_log_tests tests/test_log.cpp)
+  target_link_libraries(astrosim_log_tests PRIVATE astrosim::log GTest::gtest_main)
+  astrosim_log_configure(astrosim_log_tests)
+  gtest_discover_tests(astrosim_log_tests)
+endif()

@@ -13,7 +13,7 @@
 
 #include <toml++/toml.hpp>
 
-#include "log.hpp"
+#include "astrosim/log/log.hpp"
 
 namespace astrosim::gateway {
 

@@ -13,8 +13,8 @@
 #include <gz/msgs/model.pb.h>
 #include <gz/msgs/odometry.pb.h>
 
+#include "astrosim/log/log.hpp"
 #include "gz_names.hpp"
-#include "log.hpp"
 
 namespace astrosim::gateway {
 
