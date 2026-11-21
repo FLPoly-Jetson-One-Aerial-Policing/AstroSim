@@ -1,0 +1,218 @@
+<?xml version="1.0" ?>
+<!-- PoC world: Jetson ONE-sized model (models/jetson_one, X3 UAV dynamics) + velocity controller + odometry, 1 ms step, headless. Derived from gz-sim multicopter_velocity_control.sdf. -->
+<sdf version="1.6">
+  <world name="multicopter">
+    <physics name="1ms" type="ignored">
+      <max_step_size>0.001</max_step_size>
+      <real_time_factor>1.0</real_time_factor>
+    </physics>
+    <plugin
+      filename="gz-sim-physics-system"
+      name="gz::sim::systems::Physics">
+    </plugin>
+    <plugin
+      filename="gz-sim-scene-broadcaster-system"
+      name="gz::sim::systems::SceneBroadcaster">
+    </plugin>
+    <plugin
+      filename="gz-sim-user-commands-system"
+      name="gz::sim::systems::UserCommands">
+    </plugin>
+
+    <light type="directional" name="sun">
+      <cast_shadows>true</cast_shadows>
+      <pose>0 0 10 0 0 0</pose>
+      <diffuse>0.8 0.8 0.8 1</diffuse>
+      <specular>0.2 0.2 0.2 1</specular>
+      <attenuation>
+        <range>1000</range>
+        <constant>0.9</constant>
+        <linear>0.01</linear>
+        <quadratic>0.001</quadratic>
+      </attenuation>
+      <direction>-0.5 0.1 -0.9</direction>
+    </light>
+
+    <!-- Map ground: 800 m east-west (x) by 1100 m north-south (y), centred on the campus (shared/scene/campus.hpp: kMapCx, kMapCy), not the spawn pad, top face at z=0.
+         A box, not a <plane>: plane collision is infinite whatever its <size>, and the map is meant to end
+         (fly past the edge and there is nothing to land on). host/app/viewer.cpp draws the same extent. -->
+    <model name="ground_plane">
+      <static>true</static>
+      <link name="link">
+        <pose>130 50 -0.5 0 0 0</pose>
+        <collision name="collision">
+          <geometry>
+            <box>
+              <size>800 1100 1</size>
+            </box>
+          </geometry>
+        </collision>
+        <visual name="visual">
+          <geometry>
+            <box>
+              <size>800 1100 1</size>
+            </box>
+          </geometry>
+          <material>
+            <ambient>0.8 0.8 0.8 1</ambient>
+            <diffuse>0.8 0.8 0.8 1</diffuse>
+            <specular>0.8 0.8 0.8 1</specular>
+          </material>
+        </visual>
+      </link>
+    </model>
+    <include>
+      <uri>
+        model://jetson_one
+      </uri>
+      <!-- X3 motor constants, except rotorDragCoefficient: its yaw damping grows with rotor radius squared, and
+           at the Jetson's 1.163 m (X3: 0.247 m) the stock 8.06428e-05 capped yaw at ~0.4 rad/s and kept one
+           diagonal pair at its speed limit, so yaw + forward flight rocked. Scaled by (0.247/1.163)^2. -->
+      <plugin
+        filename="gz-sim-multicopter-motor-model-system"
+        name="gz::sim::systems::MulticopterMotorModel">
+        <robotNamespace>jetson_one</robotNamespace>
+        <jointName>jetson_one/rotor_0_joint</jointName>
+        <linkName>jetson_one/rotor_0</linkName>
+        <turningDirection>ccw</turningDirection>
+        <timeConstantUp>0.0125</timeConstantUp>
+        <timeConstantDown>0.025</timeConstantDown>
+        <maxRotVelocity>800.0</maxRotVelocity>
+        <motorConstant>8.54858e-06</motorConstant>
+        <momentConstant>0.016</momentConstant>
+        <commandSubTopic>gazebo/command/motor_speed</commandSubTopic>
+        <actuator_number>0</actuator_number>
+        <rotorDragCoefficient>3.64e-06</rotorDragCoefficient>
+        <rollingMomentCoefficient>1e-06</rollingMomentCoefficient>
+        <motorSpeedPubTopic>motor_speed/0</motorSpeedPubTopic>
+        <rotorVelocitySlowdownSim>10</rotorVelocitySlowdownSim>
+        <motorType>velocity</motorType>
+      </plugin>
+      <plugin
+        filename="gz-sim-multicopter-motor-model-system"
+        name="gz::sim::systems::MulticopterMotorModel">
+        <robotNamespace>jetson_one</robotNamespace>
+        <jointName>jetson_one/rotor_1_joint</jointName>
+        <linkName>jetson_one/rotor_1</linkName>
+        <turningDirection>ccw</turningDirection>
+        <timeConstantUp>0.0125</timeConstantUp>
+        <timeConstantDown>0.025</timeConstantDown>
+        <maxRotVelocity>800.0</maxRotVelocity>
+        <motorConstant>8.54858e-06</motorConstant>
+        <momentConstant>0.016</momentConstant>
+        <commandSubTopic>gazebo/command/motor_speed</commandSubTopic>
+        <actuator_number>1</actuator_number>
+        <rotorDragCoefficient>3.64e-06</rotorDragCoefficient>
+        <rollingMomentCoefficient>1e-06</rollingMomentCoefficient>
+        <motorSpeedPubTopic>motor_speed/1</motorSpeedPubTopic>
+        <rotorVelocitySlowdownSim>10</rotorVelocitySlowdownSim>
+        <motorType>velocity</motorType>
+      </plugin>
+      <plugin
+        filename="gz-sim-multicopter-motor-model-system"
+        name="gz::sim::systems::MulticopterMotorModel">
+        <robotNamespace>jetson_one</robotNamespace>
+        <jointName>jetson_one/rotor_2_joint</jointName>
+        <linkName>jetson_one/rotor_2</linkName>
+        <turningDirection>cw</turningDirection>
+        <timeConstantUp>0.0125</timeConstantUp>
+        <timeConstantDown>0.025</timeConstantDown>
+        <maxRotVelocity>800.0</maxRotVelocity>
+        <motorConstant>8.54858e-06</motorConstant>
+        <momentConstant>0.016</momentConstant>
+        <commandSubTopic>gazebo/command/motor_speed</commandSubTopic>
+        <actuator_number>2</actuator_number>
+        <rotorDragCoefficient>3.64e-06</rotorDragCoefficient>
+        <rollingMomentCoefficient>1e-06</rollingMomentCoefficient>
+        <motorSpeedPubTopic>motor_speed/2</motorSpeedPubTopic>
+        <rotorVelocitySlowdownSim>10</rotorVelocitySlowdownSim>
+        <motorType>velocity</motorType>
+      </plugin>
+      <plugin
+        filename="gz-sim-multicopter-motor-model-system"
+        name="gz::sim::systems::MulticopterMotorModel">
+        <robotNamespace>jetson_one</robotNamespace>
+        <jointName>jetson_one/rotor_3_joint</jointName>
+        <linkName>jetson_one/rotor_3</linkName>
+        <turningDirection>cw</turningDirection>
+        <timeConstantUp>0.0125</timeConstantUp>
+        <timeConstantDown>0.025</timeConstantDown>
+        <maxRotVelocity>800.0</maxRotVelocity>
+        <motorConstant>8.54858e-06</motorConstant>
+        <momentConstant>0.016</momentConstant>
+        <commandSubTopic>gazebo/command/motor_speed</commandSubTopic>
+        <actuator_number>3</actuator_number>
+        <rotorDragCoefficient>3.64e-06</rotorDragCoefficient>
+        <rollingMomentCoefficient>1e-06</rollingMomentCoefficient>
+        <motorSpeedPubTopic>motor_speed/3</motorSpeedPubTopic>
+        <rotorVelocitySlowdownSim>10</rotorVelocitySlowdownSim>
+        <motorType>velocity</motorType>
+      </plugin>
+      <plugin
+        filename="gz-sim-multicopter-control-system"
+        name="gz::sim::systems::MulticopterVelocityControl">
+        <robotNamespace>jetson_one</robotNamespace>
+        <commandSubTopic>gazebo/command/twist</commandSubTopic>
+        <enableSubTopic>enable</enableSubTopic>
+        <comLinkName>jetson_one/base_link</comLinkName>
+        <velocityGain>2.7 2.7 2.7</velocityGain>
+        <attitudeGain>2 3 0.15</attitudeGain>
+        <angularRateGain>0.4 0.52 0.18</angularRateGain>
+        <!-- horizontal room for the gateway's 25 deg max tilt (g*tan 25 = 4.57 m/s^2) -->
+        <maximumLinearAcceleration>5 5 2</maximumLinearAcceleration>
+
+        <rotorConfiguration>
+          <rotor>
+            <jointName>jetson_one/rotor_0_joint</jointName>
+            <forceConstant>8.54858e-06</forceConstant>
+            <momentConstant>0.016</momentConstant>
+            <direction>1</direction>
+          </rotor>
+          <rotor>
+            <jointName>jetson_one/rotor_1_joint</jointName>
+            <forceConstant>8.54858e-06</forceConstant>
+            <momentConstant>0.016</momentConstant>
+            <direction>1</direction>
+          </rotor>
+          <rotor>
+            <jointName>jetson_one/rotor_2_joint</jointName>
+            <forceConstant>8.54858e-06</forceConstant>
+            <momentConstant>0.016</momentConstant>
+            <direction>-1</direction>
+          </rotor>
+          <rotor>
+            <jointName>jetson_one/rotor_3_joint</jointName>
+            <forceConstant>8.54858e-06</forceConstant>
+            <momentConstant>0.016</momentConstant>
+            <direction>-1</direction>
+          </rotor>
+        </rotorConfiguration>
+      </plugin>
+      <!-- Airframe drag on all three body axes, so it opposes the velocity even when tilted (x/y only would
+           push a nose-down craft upward): force = mass * (kDragLin*v +
+           kDragQuad*v*|v|) with the gateway's container/gateway/mixer.hpp constants and the X3's 1.5 kg, so the
+           sim's drag matches the gateway's momentum model and holding speed takes tilt. Hydrodynamics is
+           just a linear + quadratic body damper here; added mass and Coriolis are off. Fossen sign: negative. -->
+      <plugin
+        filename="gz-sim-hydrodynamics-system"
+        name="gz::sim::systems::Hydrodynamics">
+        <link_name>jetson_one/base_link</link_name>
+        <xU>-0.12</xU>
+        <xUabsU>-0.0043122</xUabsU>
+        <yV>-0.12</yV>
+        <yVabsV>-0.0043122</yVabsV>
+        <zW>-0.12</zW>
+        <zWabsW>-0.0043122</zWabsW>
+        <disable_added_mass>true</disable_added_mass>
+        <disable_coriolis>true</disable_coriolis>
+      </plugin>
+      <plugin
+        filename="gz-sim-odometry-publisher-system"
+        name="gz::sim::systems::OdometryPublisher">
+        <dimensions>3</dimensions>
+        <!-- default 50 Hz; the gateway re-sends its body-frame command on each update (see gz_link.cpp) -->
+        <odom_publish_frequency>500</odom_publish_frequency>
+      </plugin>
+    </include>
+  </world>
+</sdf>

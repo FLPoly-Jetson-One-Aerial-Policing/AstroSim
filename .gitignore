@@ -1,0 +1,5 @@
+**/build/
+**/*.mp4
+**/*.tmp
+**/*.txt
+astrosim
