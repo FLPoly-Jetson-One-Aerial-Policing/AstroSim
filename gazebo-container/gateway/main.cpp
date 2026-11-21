@@ -17,6 +17,8 @@
 #include <string_view>
 #include <system_error>
 
+#include "astrosim/aircraft/aircraft.hpp"
+#include "binding.hpp"
 #include "config.hpp"
 #include "gateway.hpp"
 #include "gz_engine.hpp"
@@ -53,22 +55,21 @@ void installSignalHandlers() {
 /** @brief Print usage to @p out. */
 void usage(std::FILE* out) {
   std::fprintf(out,
-               "usage: gateway [--config PATH] [--help] [--version]\n"
-               "  --config PATH  gateway TOML file (default %s)\n",
+               "usage: gateway --aircraft PATH [--config PATH] [--help] [--version]\n"
+               "  --aircraft PATH  aircraft TOML file (required)\n"
+               "  --config PATH    gateway TOML file (default %s)\n",
                kDefaultConfig);
 }
 
 /** @brief Log the effective configuration at info level. */
-void logConfig(const Config& c) {
+void logConfig(const Config& c, const aircraft::Aircraft& a, const MotorBinding& b) {
   log::info("config: network {}:{} max_subscribers={}", c.network.bind, c.network.port, c.network.max_subscribers);
   log::info("config: timing state_rate_hz={} deadman={}s lease={}s subscriber={}s engine_stale={}s stats={}s",
             c.timing.state_rate_hz, c.timing.deadman_timeout_s, c.timing.lease_timeout_s, c.timing.subscriber_timeout_s,
             c.timing.engine_stale_s, c.timing.stats_interval_s);
-  log::info("config: engine model={} odometry={} command={} motor_speed='{}'", c.engine.model, c.engine.odometry_topic,
-            c.engine.motor_command_topic, c.engine.motor_speed_topic);
-  for (std::size_t i = 0; i < c.motors.size(); ++i) {
-    log::info("config: motor[{}] -> actuator {} max {} rad/s", i, c.motors[i].actuator_index, c.motors[i].max_rad_s);
-  }
+  log::info("config: aircraft '{}' motors={} loaded_mass={} kg speed_scale={}", a.name, a.motors.size(),
+            aircraft::loadedMass(a).mass_kg, b.motor_speed_scale);
+  for (std::size_t i = 0; i < b.max_rad_s.size(); ++i) log::info("config: motor[{}] max {} rad/s", i, b.max_rad_s[i]);
 }
 
 /**
@@ -129,6 +130,7 @@ void run(UdpTransport& transport, Gateway& gw, const Config& cfg) {
  */
 int main(int argc, char** argv) {
   std::string config_path = kDefaultConfig;
+  std::string aircraft_path;
   for (int i = 1; i < argc; ++i) {
     const std::string_view a = argv[i];
     if (a == "--help" || a == "-h") {
@@ -139,7 +141,9 @@ int main(int argc, char** argv) {
       std::printf("astrosim gateway %s\n", kVersion);
       return 0;
     }
-    if (a == "--config" && i + 1 < argc) {
+    if (a == "--aircraft" && i + 1 < argc) {
+      aircraft_path = argv[++i];
+    } else if (a == "--config" && i + 1 < argc) {
       config_path = argv[++i];
     } else {
       std::fprintf(stderr, "gateway: unknown or incomplete argument '%s'\n", argv[i]);
@@ -148,20 +152,33 @@ int main(int argc, char** argv) {
     }
   }
 
+  if (aircraft_path.empty()) {
+    std::fprintf(stderr, "gateway: --aircraft is required\n");
+    usage(stderr);
+    return 2;
+  }
+
   Config cfg;
+  aircraft::Aircraft ac;
+  MotorBinding binding{};
   try {
     cfg = loadConfig(config_path, processEnv);
+    ac = aircraft::loadAircraft(aircraft_path);
+    binding = bindAircraft(ac);
   } catch (const ConfigError& e) {
     log::error("configuration error: {}", e.what());
     return 2;
+  } catch (const aircraft::AircraftError& e) {
+    log::error("aircraft error: {}", e.what());
+    return 2;
   }
   log::setLevel(*log::parseLevel(cfg.log.level));
-  log::info("astrosim gateway {} starting, config {}", kVersion, config_path);
-  logConfig(cfg);
+  log::info("astrosim gateway {} starting, config {}, aircraft {}", kVersion, config_path, aircraft_path);
+  logConfig(cfg, ac, binding);
 
   try {
     installSignalHandlers();
-    GzEngine engine(cfg);
+    GzEngine engine(cfg, binding);
     UdpTransport transport(cfg.network.bind, cfg.network.port);
     Gateway gw(engine, cfg);
     log::info("listening on {}:{}", cfg.network.bind, cfg.network.port);

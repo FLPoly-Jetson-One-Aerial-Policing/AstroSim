@@ -14,6 +14,7 @@
 #include <gz/msgs/odometry.pb.h>
 #include <gz/transport/Node.hh>
 
+#include "binding.hpp"
 #include "config.hpp"
 #include "engine.hpp"
 
@@ -22,7 +23,7 @@ namespace astrosim::gateway {
 /**
  * @brief Gazebo engine adapter.
  *
- * Subscribes to the model odometry (gz::msgs::Odometry) and, optionally, to a joint-state topic (gz::msgs::Model) for
+ * Subscribes to the model odometry (gz::msgs::Odometry) and to a joint-state topic (gz::msgs::Model) for
  * rotor speeds (the MulticopterMotorModel does not publish speeds itself; its joints are read instead). Commands are
  * published as gz::msgs::Actuators. Callbacks run on gz-transport threads; all shared state is guarded by a mutex.
  */
@@ -30,10 +31,11 @@ class GzEngine : public Engine {
  public:
   /**
    * @brief Advertise the command topic and subscribe to the state topics.
-   * @param config Validated configuration (engine and motor sections are used).
+   * @param config Validated configuration (timing is used).
+   * @param binding Motor scaling from the aircraft file; topics and joint names come from gz_names.hpp.
    * @throws std::runtime_error if the advertisement or any subscription fails.
    */
-  explicit GzEngine(const Config& config);
+  GzEngine(const Config& config, const MotorBinding& binding);
 
   /** @brief Unsubscribes; no callback runs after destruction. */
   ~GzEngine() override = default;
@@ -46,8 +48,7 @@ class GzEngine : public Engine {
 
   /**
    * @copydoc Engine::setMotors
-   * Publishes an Actuators message sized to the largest actuator index + 1; velocity[actuator_index] = power *
-   * max_rad_s.
+   * Publishes an Actuators message with velocity[i] = power[i] * max_rad_s[i].
    */
   void setMotors(const std::array<float, proto::kNumMotors>& power) override;
 
@@ -59,9 +60,8 @@ class GzEngine : public Engine {
   /** @brief Joint-state callback: updates rotor speeds from the configured joints. */
   void onJointState(const gz::msgs::Model& msg);
 
-  Config config_;
+  MotorBinding binding_;
   std::chrono::duration<double> stale_after_;
-  std::size_t actuator_count_ = 0;
 
   std::map<std::string, std::size_t> joint_to_motor_;  ///< Joint name -> protocol motor index.
 

@@ -1,0 +1,172 @@
+# Jetson ONE aircraft data (best guess).
+#
+# Single source of truth for the aircraft's physics: the Gazebo model and the gateway are generated from / read
+# from this file. Schema reference: AIRCRAFT.md.
+#
+# Frame: FLU body frame (x forward, y left, z up), SI units; the unit is part of each key name. The origin is
+# the airframe reference point, 0.45 m above the bottoms of the skids, roughly mid-tub.
+# Inertia products (ixy, ixz, iyz) are matrix elements (SDF convention), about the centre of mass.
+#
+# NO DEFAULTS: every key is required and unknown keys are rejected. Nothing is built into the code.
+#
+# Every value below is a placeholder until Jetson data arrives; each is tagged "# GUESS: <basis>" or
+# "# SOURCE: <ref>". See AIRCRAFT.md ("Replacing guesses with Jetson data") for the mapping to the data request.
+
+schema_version = 1
+
+[aircraft]
+name = "Jetson ONE"  # label for logs and display
+
+# Empty aircraft INCLUDING its eight rotors (the generator splits the rotating parts off).
+[airframe]
+mass_kg = 86.0  # SOURCE: published empty weight, jetson.com (B1.1)
+center_of_mass_m = [0.0, 0.0, 0.15]  # GUESS: battery box low in the tub, motors high on the arms (B1.2)
+# GUESS: 8 motors of ~5 kg at r ~ 1.16 m plus a 46 kg tub/battery box of 1.2 x 0.62 x 0.6 m (B1.3)
+inertia_kg_m2 = { ixx = 21.0, iyy = 59.0, izz = 61.0, ixy = 0.0, ixz = 0.0, iyz = 0.0 }
+
+# Seated pilot. Trainee weight varies; this is the nominal case.
+[pilot]
+mass_kg = 85.0  # GUESS: average adult; Jetson's stated maximum pilot is 95 kg (B1.1)
+center_of_mass_m = [0.0, 0.0, 0.0]  # GUESS: seated over the thrust centroid, so the loaded aircraft balances (B1.5)
+# GUESS: seated box 0.4 x 0.45 x 0.8 m (B1.5)
+inertia_kg_m2 = { ixx = 5.95, iyy = 5.67, izz = 2.55, ixy = 0.0, ixz = 0.0, iyz = 0.0 }
+
+# Body collision primitives. Envelope 2.70 x 1.60 x 1.12 m (SOURCE: jetson.com); shapes and sizes are GUESS
+# (taken from the placeholder model) until CAD arrives (B2.1).
+
+[[collision]]
+name = "tub"
+shape = "box"
+size_m = [1.2, 0.62, 1.12]  # GUESS: placeholder shape
+xyz_m = [0.0, 0.0, 0.11]  # GUESS: placeholder pose
+rpy_rad = [0.0, 0.0, 0.0]  # GUESS: placeholder pose
+
+[[collision]]
+name = "skid_l"
+shape = "box"
+size_m = [1.5, 0.06, 0.06]  # GUESS: placeholder shape
+xyz_m = [0.0, 0.4, -0.42]  # GUESS: placeholder pose
+rpy_rad = [0.0, 0.0, 0.0]  # GUESS: placeholder pose
+
+[[collision]]
+name = "skid_r"
+shape = "box"
+size_m = [1.5, 0.06, 0.06]  # GUESS: placeholder shape
+xyz_m = [0.0, -0.4, -0.42]  # GUESS: placeholder pose
+rpy_rad = [0.0, 0.0, 0.0]  # GUESS: placeholder pose
+
+[[collision]]
+name = "arm_0"
+shape = "box"
+size_m = [0.759, 0.06, 0.06]  # GUESS: placeholder shape
+xyz_m = [0.75, -0.4, 0.21]  # GUESS: placeholder pose
+rpy_rad = [0.0, -0.5862, -0.3218]  # GUESS: placeholder pose
+
+[[collision]]
+name = "arm_1"
+shape = "box"
+size_m = [0.759, 0.06, 0.06]  # GUESS: placeholder shape
+xyz_m = [-0.75, 0.4, 0.21]  # GUESS: placeholder pose
+rpy_rad = [0.0, -0.5862, 2.8198]  # GUESS: placeholder pose
+
+[[collision]]
+name = "arm_2"
+shape = "box"
+size_m = [0.759, 0.06, 0.06]  # GUESS: placeholder shape
+xyz_m = [0.75, 0.4, 0.21]  # GUESS: placeholder pose
+rpy_rad = [0.0, -0.5862, 0.3218]  # GUESS: placeholder pose
+
+[[collision]]
+name = "arm_3"
+shape = "box"
+size_m = [0.759, 0.06, 0.06]  # GUESS: placeholder shape
+xyz_m = [-0.75, -0.4, 0.21]  # GUESS: placeholder pose
+rpy_rad = [0.0, -0.5862, -2.8198]  # GUESS: placeholder pose
+
+# Rotor definitions shared by several motors. Hover needs about 74% of maximum rotor speed at the 171 kg loaded mass
+# (a sanity check on thrust and speed).
+
+[[rotor_type]]
+name = "upper"
+prop_radius_m = 0.3  # GUESS: fits the 1.6 m overall width (B3.3)
+collision_thickness_m = 0.05  # GUESS: thin disc for contact only
+rotating_mass_kg = 1.0  # GUESS: 0.5 kg prop + 0.5 kg motor bell (B3.5)
+# GUESS: spin inertia of the above (B3.5)
+rotating_inertia_kg_m2 = { ixx = 0.01, iyy = 0.01, izz = 0.02 }
+max_rot_velocity_rad_s = 500.0  # GUESS: ~150 m/s tip speed (B4.3)
+motor_constant_n_s2 = 1.676e-3  # GUESS: 419 N (42.7 kgf prototype per-motor thrust) at 500 rad/s (B4.1)
+moment_constant_m = 0.04  # GUESS: typical prop drag-torque / thrust (B4.2)
+time_constant_up_s = 0.08  # GUESS: large outrunner motor and prop (B4.4)
+time_constant_down_s = 0.12  # GUESS: slower to spin down than up (B4.4)
+rotor_drag_coefficient = 5.0e-3  # GUESS: small-multirotor magnitude (B6.6)
+rolling_moment_coefficient = 1.0e-6  # GUESS: small-multirotor magnitude (B6.6)
+
+[[rotor_type]]
+name = "lower"
+prop_radius_m = 0.3  # GUESS: fits the 1.6 m overall width (B3.3)
+collision_thickness_m = 0.05  # GUESS: thin disc for contact only
+rotating_mass_kg = 1.0  # GUESS: 0.5 kg prop + 0.5 kg motor bell (B3.5)
+# GUESS: spin inertia of the above (B3.5)
+rotating_inertia_kg_m2 = { ixx = 0.01, iyy = 0.01, izz = 0.02 }
+max_rot_velocity_rad_s = 500.0  # GUESS: ~150 m/s tip speed (B4.3)
+motor_constant_n_s2 = 1.4246e-3  # GUESS: 15% coaxial lower-prop loss versus upper (B3.4)
+moment_constant_m = 0.04  # GUESS: typical prop drag-torque / thrust (B4.2)
+time_constant_up_s = 0.08  # GUESS: large outrunner motor and prop (B4.4)
+time_constant_down_s = 0.12  # GUESS: slower to spin down than up (B4.4)
+rotor_drag_coefficient = 5.0e-3  # GUESS: small-multirotor magnitude (B6.6)
+rolling_moment_coefficient = 1.0e-6  # GUESS: small-multirotor magnitude (B6.6)
+
+# Motors in protocol order (array index = motor index). The numbering and spin directions are a GUESS pending
+# Jetson's data (B3.2, B4.6). Motors 0-3 are the upper props of the four coaxial pairs, 4-7 the lower props of
+# the same pairs, spinning the opposite way. Hub z is 0.52 m (upper) / 0.38 m (lower).
+
+[[motor]]  # 0: front-right, upper
+rotor_type = "upper"
+xyz_m = [1.05, -0.5, 0.52]  # GUESS: arm-end position, +0.07 m (B3.1)
+direction = "ccw"  # GUESS: numbering and direction pending B3.2
+
+[[motor]]  # 1: rear-left, upper
+rotor_type = "upper"
+xyz_m = [-1.05, 0.5, 0.52]  # GUESS: arm-end position, +0.07 m (B3.1)
+direction = "ccw"  # GUESS: numbering and direction pending B3.2
+
+[[motor]]  # 2: front-left, upper
+rotor_type = "upper"
+xyz_m = [1.05, 0.5, 0.52]  # GUESS: arm-end position, +0.07 m (B3.1)
+direction = "cw"  # GUESS: numbering and direction pending B3.2
+
+[[motor]]  # 3: rear-right, upper
+rotor_type = "upper"
+xyz_m = [-1.05, -0.5, 0.52]  # GUESS: arm-end position, +0.07 m (B3.1)
+direction = "cw"  # GUESS: numbering and direction pending B3.2
+
+[[motor]]  # 4: front-right, lower
+rotor_type = "lower"
+xyz_m = [1.05, -0.5, 0.38]  # GUESS: coaxial with motor 0, -0.07 m (B3.1)
+direction = "cw"  # GUESS: opposite of motor 0, pending B3.2
+
+[[motor]]  # 5: rear-left, lower
+rotor_type = "lower"
+xyz_m = [-1.05, 0.5, 0.38]  # GUESS: coaxial with motor 1, -0.07 m (B3.1)
+direction = "cw"  # GUESS: opposite of motor 1, pending B3.2
+
+[[motor]]  # 6: front-left, lower
+rotor_type = "lower"
+xyz_m = [1.05, 0.5, 0.38]  # GUESS: coaxial with motor 2, -0.07 m (B3.1)
+direction = "ccw"  # GUESS: opposite of motor 2, pending B3.2
+
+[[motor]]  # 7: rear-right, lower
+rotor_type = "lower"
+xyz_m = [-1.05, -0.5, 0.38]  # GUESS: coaxial with motor 3, -0.07 m (B3.1)
+direction = "ccw"  # GUESS: opposite of motor 3, pending B3.2
+
+# Airframe drag as positive magnitudes along body x, y, z (the generator applies the sign).
+[drag]
+linear_n_s_m = [5.0, 5.0, 5.0]  # GUESS: small linear term for numerical damping (B6.1)
+# GUESS: 0.5 * rho * Cd * A with Cd 1.0 and A ~ 1.6 / 2.0 / 4.3 m^2 front / side / top (B6.1)
+quadratic_n_s2_m2 = [0.98, 1.2, 2.6]
+
+# Simulation knobs, not aircraft data.
+[simulation]
+rotor_velocity_slowdown = 10.0  # Gazebo rotorVelocitySlowdownSim for the motor model
+odometry_rate_hz = 500.0  # odometry publish rate

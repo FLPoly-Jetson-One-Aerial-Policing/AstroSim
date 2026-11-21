@@ -14,40 +14,7 @@ subscriber_timeout_s = 5     # subscriber silent this long -> dropped
 engine_stale_s = 0.5         # odometry older than this -> ENGINE_OK cleared
 stats_interval_s = 10        # period of the stats log line
 
-[engine]
-model = "jetson_one"
-odometry_topic = "/model/jetson_one/odometry"
-motor_command_topic = "/jetson_one/gazebo/command/motor_speed"
-# Rotor speed feedback is read from a joint-state topic (gz Model). Empty topic disables feedback.
-motor_speed_topic = "/jetson_one/joint_state"
-motor_joint_name = "jetson_one/rotor_{actuator}_joint"   # {actuator} -> each motor's actuator_index
-motor_speed_scale = 10       # joint velocity * scale = rotor rad/s (motor model rotorVelocitySlowdownSim)
-
 [log]
 level = "info"               # trace, debug, info, warn, error
 
-# Protocol motor i (array order) -> physical actuator index; rotor speed at power 1.0.
-[[motor]]
-actuator_index = 0
-max_rad_s = 800
-[[motor]]
-actuator_index = 1
-max_rad_s = 800
-[[motor]]
-actuator_index = 2
-max_rad_s = 800
-[[motor]]
-actuator_index = 3
-max_rad_s = 800
-[[motor]]
-actuator_index = 4
-max_rad_s = 800
-[[motor]]
-actuator_index = 5
-max_rad_s = 800
-[[motor]]
-actuator_index = 6
-max_rad_s = 800
-[[motor]]
-actuator_index = 7
-max_rad_s = 800
+# Motor data (count, max speeds, slowdown) comes from the aircraft file (--aircraft), not from this file.

@@ -7,7 +7,7 @@
 #
 # Stages:
 #   build   dev packages, unit tests under ASan/UBSan (the build fails if a test fails), then a Release build
-#   runtime gz-sim server + runtime libraries only, the gateway binaries, config, world and models
+#   runtime gz-sim server + runtime libraries only, the gateway binaries, model generator, config, world and aircraft file
 ARG UBUNTU_TAG=26.04
 
 # ---------------------------------------------------------------------------------------------------------------
@@ -30,6 +30,7 @@ RUN apt-get update \
     libgz-transport${GZ_TRANSPORT_VER}-dev \
     libgz-msgs${GZ_MSGS_VER}-dev \
     libgz-math9-dev \
+    libsdformat16-dev \
     && rm -rf /var/lib/apt/lists/*
 
 # Mirror the repo layout so the relative path from gazebo-container/ to shared/ holds.
@@ -37,12 +38,14 @@ WORKDIR /src
 COPY shared/ /src/shared/
 COPY gazebo-container/CMakeLists.txt /src/gazebo-container/CMakeLists.txt
 COPY gazebo-container/gateway/ /src/gazebo-container/gateway/
+COPY gazebo-container/modelgen/ /src/gazebo-container/modelgen/
 COPY gazebo-container/config/ /src/gazebo-container/config/
 COPY gazebo-container/tests/ /src/gazebo-container/tests/
 
-# Unit tests under ASan/UBSan (no gz needed). A failing test fails the image build.
+# Unit tests under ASan/UBSan (no gz needed), including loading the generated SDF with sdformat. A failing test
+# fails the image build.
 RUN cmake -S gazebo-container -B /tmp/build-test -G Ninja -DCMAKE_BUILD_TYPE=Debug \
-        -DASTROSIM_SANITIZE=ON -DASTROSIM_BUILD_TESTS=ON -DASTROSIM_BUILD_GZ=OFF \
+        -DASTROSIM_SANITIZE=ON -DASTROSIM_BUILD_TESTS=ON -DASTROSIM_BUILD_SDF_TEST=ON -DASTROSIM_BUILD_GZ=OFF \
     && cmake --build /tmp/build-test \
     && ctest --test-dir /tmp/build-test --output-on-failure
 
@@ -61,7 +64,7 @@ ARG GZ_MSGS_VER=12
 
 ENV DEBIAN_FRONTEND=noninteractive \
     GZ_SIM_VER=${GZ_SIM_VER} \
-    GZ_SIM_RESOURCE_PATH=/opt/astrosim/models:/opt/astrosim/worlds \
+    GZ_SIM_RESOURCE_PATH=/tmp/astrosim/models:/opt/astrosim/worlds \
     HOME=/home/astrosim
 
 RUN apt-get update \
@@ -79,12 +82,12 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/* \
     && useradd --create-home --home-dir /home/astrosim --shell /usr/sbin/nologin --uid 10001 astrosim
 
-COPY --from=build /opt/stage/bin/gateway /opt/stage/bin/astrosim-probe /usr/local/bin/
+COPY --from=build /opt/stage/bin/gateway /opt/stage/bin/astrosim-probe /opt/stage/bin/astrosim-modelgen /usr/local/bin/
 
 WORKDIR /opt/astrosim
 COPY gazebo-container/config/ /opt/astrosim/config/
 COPY gazebo-container/worlds/ /opt/astrosim/worlds/
-COPY gazebo-container/models/ /opt/astrosim/models/
+COPY shared/aircraft/jetson_one.toml /opt/astrosim/config/jetson_one.toml
 COPY --chmod=755 gazebo-container/entrypoint.sh /opt/astrosim/entrypoint.sh
 
 USER astrosim

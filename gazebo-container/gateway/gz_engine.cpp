@@ -13,46 +13,26 @@
 #include <gz/msgs/model.pb.h>
 #include <gz/msgs/odometry.pb.h>
 
+#include "gz_names.hpp"
 #include "log.hpp"
 
 namespace astrosim::gateway {
 
-namespace {
+GzEngine::GzEngine(const Config& config, const MotorBinding& binding)
+    : binding_(binding), stale_after_(config.timing.engine_stale_s) {
+  const std::string command_topic = gznames::motorCommandTopic();
+  command_pub_ = node_.Advertise<gz::msgs::Actuators>(command_topic);
+  if (!command_pub_.Valid()) throw std::runtime_error(std::format("cannot advertise '{}'", command_topic));
 
-/** @brief Replace every "{actuator}" in @p pattern with @p index. */
-std::string expandName(std::string pattern, int index) {
-  static const std::string kToken = "{actuator}";
-  for (std::size_t pos = pattern.find(kToken); pos != std::string::npos; pos = pattern.find(kToken, pos)) {
-    const std::string value = std::to_string(index);
-    pattern.replace(pos, kToken.size(), value);
-    pos += value.size();
-  }
-  return pattern;
-}
-
-}  // namespace
-
-GzEngine::GzEngine(const Config& config) : config_(config), stale_after_(config.timing.engine_stale_s) {
-  int max_index = 0;
-  for (const auto& m : config_.motors) max_index = std::max(max_index, m.actuator_index);
-  actuator_count_ = static_cast<std::size_t>(max_index) + 1;
-
-  command_pub_ = node_.Advertise<gz::msgs::Actuators>(config_.engine.motor_command_topic);
-  if (!command_pub_.Valid()) {
-    throw std::runtime_error(std::format("cannot advertise '{}'", config_.engine.motor_command_topic));
+  const std::string odometry_topic = gznames::odometryTopic();
+  if (!node_.Subscribe(odometry_topic, &GzEngine::onOdometry, this)) {
+    throw std::runtime_error(std::format("cannot subscribe to '{}'", odometry_topic));
   }
 
-  if (!node_.Subscribe(config_.engine.odometry_topic, &GzEngine::onOdometry, this)) {
-    throw std::runtime_error(std::format("cannot subscribe to '{}'", config_.engine.odometry_topic));
-  }
-
-  if (!config_.engine.motor_speed_topic.empty()) {
-    for (std::size_t i = 0; i < config_.motors.size(); ++i) {
-      joint_to_motor_.emplace(expandName(config_.engine.motor_joint_name, config_.motors[i].actuator_index), i);
-    }
-    if (!node_.Subscribe(config_.engine.motor_speed_topic, &GzEngine::onJointState, this)) {
-      throw std::runtime_error(std::format("cannot subscribe to '{}'", config_.engine.motor_speed_topic));
-    }
+  for (std::size_t i = 0; i < proto::kNumMotors; ++i) joint_to_motor_.emplace(gznames::rotorJointName(i), i);
+  const std::string joint_topic = gznames::jointStateTopic();
+  if (!node_.Subscribe(joint_topic, &GzEngine::onJointState, this)) {
+    throw std::runtime_error(std::format("cannot subscribe to '{}'", joint_topic));
   }
 }
 
@@ -84,7 +64,7 @@ void GzEngine::onJointState(const gz::msgs::Model& msg) {
     if (it == joint_to_motor_.end()) continue;
     // Direction of rotation is irrelevant for the protocol; report the magnitude.
     state_.motor_speed[it->second] =
-        static_cast<float>(std::abs(joint.axis1().velocity()) * config_.engine.motor_speed_scale);
+        static_cast<float>(std::abs(joint.axis1().velocity()) * binding_.motor_speed_scale);
   }
 }
 
@@ -98,13 +78,10 @@ EngineState GzEngine::snapshot() {
 
 void GzEngine::setMotors(const std::array<float, proto::kNumMotors>& power) {
   gz::msgs::Actuators msg;
-  for (std::size_t i = 0; i < actuator_count_; ++i) msg.add_velocity(0.0);
-  for (std::size_t i = 0; i < power.size(); ++i) {
-    msg.set_velocity(config_.motors[i].actuator_index, static_cast<double>(power[i]) * config_.motors[i].max_rad_s);
-  }
+  for (std::size_t i = 0; i < power.size(); ++i)
+    msg.add_velocity(static_cast<double>(power[i]) * binding_.max_rad_s[i]);
   std::lock_guard lock(publish_mutex_);
-  if (!command_pub_.Publish(msg))
-    log::warn("failed to publish motor command on '{}'", config_.engine.motor_command_topic);
+  if (!command_pub_.Publish(msg)) log::warn("failed to publish motor command on '{}'", gznames::motorCommandTopic());
 }
 
 }  // namespace astrosim::gateway
