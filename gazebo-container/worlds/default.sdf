@@ -1,5 +1,5 @@
 <?xml version="1.0" ?>
-<!-- PoC world: Jetson ONE-sized model (models/jetson_one, X3 UAV dynamics) + velocity controller + odometry, 1 ms step, headless. Derived from gz-sim multicopter_velocity_control.sdf. -->
+<!-- Placeholder world: Jetson ONE-sized model (models/jetson_one, X3 UAV dynamics), motor models and odometry, 1 ms step, headless. Rotors are driven only by the gateway via gz::msgs::Actuators on /jetson_one/gazebo/command/motor_speed; there is no onboard controller. -->
 <sdf version="1.6">
   <world name="multicopter">
     <physics name="1ms" type="ignored">
@@ -66,8 +66,9 @@
         model://jetson_one
       </uri>
       <!-- X3 motor constants, except rotorDragCoefficient: its yaw damping grows with rotor radius squared, and
-           at the Jetson's 1.163 m (X3: 0.247 m) the stock 8.06428e-05 capped yaw at ~0.4 rad/s and kept one
-           diagonal pair at its speed limit, so yaw + forward flight rocked. Scaled by (0.247/1.163)^2. -->
+           at the Jetson's 1.163 m (X3: 0.247 m) the stock 8.06428e-05 capped yaw. Scaled by (0.247/1.163)^2.
+           Command topic /jetson_one/gazebo/command/motor_speed (robotNamespace + commandSubTopic) must match
+           engine.motor_command_topic; rotor speeds are read from /jetson_one/joint_state (see JointStatePublisher below). -->
       <plugin
         filename="gz-sim-multicopter-motor-model-system"
         name="gz::sim::systems::MulticopterMotorModel">
@@ -148,51 +149,9 @@
         <rotorVelocitySlowdownSim>10</rotorVelocitySlowdownSim>
         <motorType>velocity</motorType>
       </plugin>
-      <plugin
-        filename="gz-sim-multicopter-control-system"
-        name="gz::sim::systems::MulticopterVelocityControl">
-        <robotNamespace>jetson_one</robotNamespace>
-        <commandSubTopic>gazebo/command/twist</commandSubTopic>
-        <enableSubTopic>enable</enableSubTopic>
-        <comLinkName>jetson_one/base_link</comLinkName>
-        <velocityGain>2.7 2.7 2.7</velocityGain>
-        <attitudeGain>2 3 0.15</attitudeGain>
-        <angularRateGain>0.4 0.52 0.18</angularRateGain>
-        <!-- horizontal room for the gateway's 25 deg max tilt (g*tan 25 = 4.57 m/s^2) -->
-        <maximumLinearAcceleration>5 5 2</maximumLinearAcceleration>
-
-        <rotorConfiguration>
-          <rotor>
-            <jointName>jetson_one/rotor_0_joint</jointName>
-            <forceConstant>8.54858e-06</forceConstant>
-            <momentConstant>0.016</momentConstant>
-            <direction>1</direction>
-          </rotor>
-          <rotor>
-            <jointName>jetson_one/rotor_1_joint</jointName>
-            <forceConstant>8.54858e-06</forceConstant>
-            <momentConstant>0.016</momentConstant>
-            <direction>1</direction>
-          </rotor>
-          <rotor>
-            <jointName>jetson_one/rotor_2_joint</jointName>
-            <forceConstant>8.54858e-06</forceConstant>
-            <momentConstant>0.016</momentConstant>
-            <direction>-1</direction>
-          </rotor>
-          <rotor>
-            <jointName>jetson_one/rotor_3_joint</jointName>
-            <forceConstant>8.54858e-06</forceConstant>
-            <momentConstant>0.016</momentConstant>
-            <direction>-1</direction>
-          </rotor>
-        </rotorConfiguration>
-      </plugin>
       <!-- Airframe drag on all three body axes, so it opposes the velocity even when tilted (x/y only would
-           push a nose-down craft upward): force = mass * (kDragLin*v +
-           kDragQuad*v*|v|) with the gateway's container/gateway/mixer.hpp constants and the X3's 1.5 kg, so the
-           sim's drag matches the gateway's momentum model and holding speed takes tilt. Hydrodynamics is
-           just a linear + quadratic body damper here; added mass and Coriolis are off. Fossen sign: negative. -->
+           push a nose-down craft upward). Linear + quadratic body damper sized for the X3's 1.5 kg; added mass
+           and Coriolis are off. Fossen sign: negative. -->
       <plugin
         filename="gz-sim-hydrodynamics-system"
         name="gz::sim::systems::Hydrodynamics">
@@ -206,11 +165,18 @@
         <disable_added_mass>true</disable_added_mass>
         <disable_coriolis>true</disable_coriolis>
       </plugin>
+      <!-- Rotor joint velocities for the gateway's motor_speed feedback (the motor model publishes no speeds).
+           Joint velocity is rotor speed / rotorVelocitySlowdownSim, hence engine.motor_speed_scale = 10. -->
+      <plugin
+        filename="gz-sim-joint-state-publisher-system"
+        name="gz::sim::systems::JointStatePublisher">
+        <topic>/jetson_one/joint_state</topic>
+      </plugin>
       <plugin
         filename="gz-sim-odometry-publisher-system"
         name="gz::sim::systems::OdometryPublisher">
         <dimensions>3</dimensions>
-        <!-- default 50 Hz; the gateway re-sends its body-frame command on each update (see gz_link.cpp) -->
+        <!-- published on /model/jetson_one/odometry; the gateway samples the latest message each tick -->
         <odom_publish_frequency>500</odom_publish_frequency>
       </plugin>
     </include>
