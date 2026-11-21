@@ -8,6 +8,7 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 option(ASTROSIM_SANITIZE "Build with AddressSanitizer and UndefinedBehaviorSanitizer" OFF)
 option(ASTROSIM_BUILD_TESTS "Build and register unit tests (including shared/proto)" ON)
+option(ASTROSIM_BUILD_SDF_TEST "Build the sdformat load test of the generated model (needs libsdformat)" OFF)
 option(ASTROSIM_BUILD_GZ "Build gz-dependent binaries (gateway, astrosim-probe)" OFF)
 
 # Applied globally, before add_subdirectory, so shared/proto is sanitized too.
@@ -19,16 +20,30 @@ endif()
 if(ASTROSIM_BUILD_TESTS)
   enable_testing()
   set(ASTROSIM_PROTO_BUILD_TESTS ON CACHE BOOL "" FORCE)
+  set(ASTROSIM_AIRCRAFT_BUILD_TESTS ON CACHE BOOL "" FORCE)
 endif()
 
-add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/../shared/proto shared/proto)
-
 find_package(tomlplusplus REQUIRED)
+add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/../shared/proto shared/proto)
+add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/../shared/aircraft shared/aircraft)
+set(ASTROSIM_AIRCRAFT_TOML ${CMAKE_CURRENT_SOURCE_DIR}/../shared/aircraft/jetson_one.toml)
 
 # Strict warnings on our own targets only.
 function(astrosim_warnings target)
   target_compile_options(${target} PRIVATE -Wall -Wextra -Wpedantic -Werror)
 endfunction()
+
+# Model generator: aircraft file -> Gazebo SDF text. gz-free; always built.
+add_library(astrosim_modelgen_core STATIC modelgen/sdf_model.cpp)
+target_include_directories(astrosim_modelgen_core PUBLIC modelgen)
+target_link_libraries(astrosim_modelgen_core PUBLIC astrosim::aircraft)
+astrosim_warnings(astrosim_modelgen_core)
+
+add_executable(astrosim-modelgen modelgen/main.cpp)
+target_link_libraries(astrosim-modelgen PRIVATE astrosim_modelgen_core)
+astrosim_warnings(astrosim-modelgen)
+include(GNUInstallDirs)
+install(TARGETS astrosim-modelgen RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
 
 add_library(astrosim_gateway_core STATIC
   gateway/config.cpp
@@ -50,6 +65,21 @@ if(ASTROSIM_BUILD_TESTS)
   endforeach()
   target_compile_definitions(test_config PRIVATE
     ASTROSIM_GATEWAY_TOML="${CMAKE_CURRENT_SOURCE_DIR}/config/gateway.toml")
+
+  add_executable(test_modelgen tests/test_modelgen.cpp)
+  target_link_libraries(test_modelgen PRIVATE astrosim_modelgen_core GTest::gtest_main)
+  target_compile_definitions(test_modelgen PRIVATE ASTROSIM_AIRCRAFT_TOML="${ASTROSIM_AIRCRAFT_TOML}")
+  astrosim_warnings(test_modelgen)
+  gtest_discover_tests(test_modelgen)
+
+  if(ASTROSIM_BUILD_SDF_TEST)
+    find_package(sdformat REQUIRED)
+    add_executable(test_sdf_load tests/test_sdf_load.cpp)
+    target_link_libraries(test_sdf_load PRIVATE astrosim_modelgen_core GTest::gtest_main sdformat::sdformat)
+    target_compile_definitions(test_sdf_load PRIVATE ASTROSIM_AIRCRAFT_TOML="${ASTROSIM_AIRCRAFT_TOML}")
+    astrosim_warnings(test_sdf_load)
+    gtest_discover_tests(test_sdf_load)
+  endif()
 endif()
 
 if(ASTROSIM_BUILD_GZ)
@@ -67,6 +97,5 @@ if(ASTROSIM_BUILD_GZ)
   target_link_libraries(astrosim-probe PRIVATE astrosim::proto)
   astrosim_warnings(astrosim-probe)
 
-  include(GNUInstallDirs)
   install(TARGETS gateway astrosim-probe RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
 endif()

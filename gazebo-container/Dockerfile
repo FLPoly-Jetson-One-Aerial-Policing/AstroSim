@@ -30,6 +30,7 @@ RUN apt-get update \
     libgz-transport${GZ_TRANSPORT_VER}-dev \
     libgz-msgs${GZ_MSGS_VER}-dev \
     libgz-math9-dev \
+    libsdformat16-dev \
     && rm -rf /var/lib/apt/lists/*
 
 # Mirror the repo layout so the relative path from gazebo-container/ to shared/ holds.
@@ -37,12 +38,14 @@ WORKDIR /src
 COPY shared/ /src/shared/
 COPY gazebo-container/CMakeLists.txt /src/gazebo-container/CMakeLists.txt
 COPY gazebo-container/gateway/ /src/gazebo-container/gateway/
+COPY gazebo-container/modelgen/ /src/gazebo-container/modelgen/
 COPY gazebo-container/config/ /src/gazebo-container/config/
 COPY gazebo-container/tests/ /src/gazebo-container/tests/
 
-# Unit tests under ASan/UBSan (no gz needed). A failing test fails the image build.
+# Unit tests under ASan/UBSan (no gz needed), including loading the generated SDF with sdformat. A failing test
+# fails the image build.
 RUN cmake -S gazebo-container -B /tmp/build-test -G Ninja -DCMAKE_BUILD_TYPE=Debug \
-        -DASTROSIM_SANITIZE=ON -DASTROSIM_BUILD_TESTS=ON -DASTROSIM_BUILD_GZ=OFF \
+        -DASTROSIM_SANITIZE=ON -DASTROSIM_BUILD_TESTS=ON -DASTROSIM_BUILD_SDF_TEST=ON -DASTROSIM_BUILD_GZ=OFF \
     && cmake --build /tmp/build-test \
     && ctest --test-dir /tmp/build-test --output-on-failure
 
