@@ -1,0 +1,9 @@
+.git
+.gitignore
+.gitattributes
+**/build/
+build*/
+docs/
+**/*.md
+**/*.mp4
+**/*.tmp

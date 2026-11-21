@@ -1,0 +1,33 @@
+# AstroSim C++ style. Apply with: clang-format -i <files>
+---
+Language: Cpp
+BasedOnStyle: Google
+Standard: c++20
+ColumnLimit: 120
+IndentWidth: 2
+AccessModifierOffset: -1
+DerivePointerAlignment: false
+PointerAlignment: Left
+AllowShortFunctionsOnASingleLine: Inline
+AllowShortIfStatementsOnASingleLine: WithoutElse
+AllowShortLoopsOnASingleLine: true
+AllowShortCaseLabelsOnASingleLine: true
+IncludeBlocks: Regroup
+IncludeCategories:
+  # C system headers
+  - Regex: '^<[a-z_/]+\.h>$'
+    Priority: 1
+  # C++ standard library
+  - Regex: '^<[a-z_]+>$'
+    Priority: 2
+  # Third-party libraries (gz, toml++, gtest)
+  - Regex: '^<.*>$'
+    Priority: 3
+  # Project headers
+  - Regex: '^".*"$'
+    Priority: 4
+SortIncludes: CaseSensitive
+FixNamespaceComments: true
+SpacesBeforeTrailingComments: 2
+ReflowComments: true
+...

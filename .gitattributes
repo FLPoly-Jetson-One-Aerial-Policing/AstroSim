@@ -1,0 +1,9 @@
+* text=auto
+# Files executed or parsed inside Linux containers must keep LF even on Windows checkouts.
+*.sh text eol=lf
+*.toml text eol=lf
+*.sdf text eol=lf
+*.config text eol=lf
+Dockerfile text eol=lf
+# Protocol golden vectors are raw bytes.
+*.bin binary
