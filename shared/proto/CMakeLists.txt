@@ -27,7 +27,7 @@ function(astrosim_proto_configure target)
   endif()
 endfunction()
 
-add_library(astrosim_proto src/wire.cpp)
+add_library(astrosim_proto src/wire.cpp src/fc_telemetry.cpp)
 add_library(astrosim::proto ALIAS astrosim_proto)
 target_include_directories(astrosim_proto PUBLIC include)
 target_compile_features(astrosim_proto PUBLIC cxx_std_20)
@@ -38,7 +38,7 @@ if(ASTROSIM_PROTO_BUILD_TESTS)
   find_package(GTest REQUIRED)
   include(GoogleTest)
 
-  add_executable(astrosim_proto_tests tests/test_wire.cpp)
+  add_executable(astrosim_proto_tests tests/test_wire.cpp tests/test_fc_telemetry.cpp)
   target_link_libraries(astrosim_proto_tests PRIVATE astrosim::proto GTest::gtest_main)
   target_compile_definitions(astrosim_proto_tests PRIVATE
     GOLDEN_DIR="${CMAKE_CURRENT_SOURCE_DIR}/testdata")

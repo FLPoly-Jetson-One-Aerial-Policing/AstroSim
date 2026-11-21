@@ -9,6 +9,7 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 option(ASTROSIM_SANITIZE "Build with AddressSanitizer and UndefinedBehaviorSanitizer" OFF)
 option(ASTROSIM_BUILD_TESTS "Build and register unit tests (including shared/proto, log and net)" ON)
 option(ASTROSIM_BUILD_SDF_TEST "Build the sdformat load test of the generated model (needs libsdformat)" OFF)
+option(ASTROSIM_BUILD_FC_TESTS "Also build the shared/fc flight computer interface library and its tests" OFF)
 option(ASTROSIM_BUILD_GZ "Build gz-dependent binaries (gateway, astrosim-probe)" OFF)
 
 # Applied globally, before add_subdirectory, so shared/proto is sanitized too.
@@ -30,6 +31,11 @@ add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/../shared/proto shared/proto)
 add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/../shared/aircraft shared/aircraft)
 add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/../shared/log shared/log)
 add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/../shared/net shared/net)
+# The engine image does not need the flight computer interface; opt in to run its tests from this project.
+if(ASTROSIM_BUILD_FC_TESTS)
+  set(ASTROSIM_FC_BUILD_TESTS ON CACHE BOOL "" FORCE)
+  add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/../shared/fc shared/fc)
+endif()
 set(ASTROSIM_AIRCRAFT_TOML ${CMAKE_CURRENT_SOURCE_DIR}/../shared/aircraft/jetson_one.toml)
 
 # Strict warnings on our own targets only.
