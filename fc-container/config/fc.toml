@@ -1,0 +1,136 @@
+# AstroSim flight computer bridge configuration. Every scalar key can be overridden by an
+# environment variable named ASTROSIM_<SECTION>_<KEY>, e.g. ASTROSIM_ENGINE_HOST.
+# The pilot script ([[pilot.script]]) can only be set in this file.
+
+[engine]
+host = "127.0.0.1"           # engine host name or IPv4 address (in a pod or compose: the engine's service name)
+port = 8765                  # engine UDP port
+
+[timing]
+control_rate_hz = 250        # Control messages to the engine
+subscribe_interval_s = 0.5   # Subscribe keepalive; must be <= 1 (the engine drops silent subscribers)
+pilot_rate_hz = 50           # rate at which the pilot input is sampled and handed to the FC
+fc_timeout_s = 0.5           # FC silent this long (or disconnected/disarmed) -> zero power is sent
+telemetry_rate_hz = 30       # FcTelemetry broadcast rate
+stats_interval_s = 10        # period of the stats log line
+
+[telemetry]                  # avionics telemetry server, see shared/proto/FC_TELEMETRY.md
+bind = "0.0.0.0"
+port = 8766
+max_subscribers = 8
+subscriber_timeout_s = 5
+
+[fc]
+adapter = "px4"                           # "px4", or "null" (TEST ONLY: outputs zero power, flies nothing)
+# TEMPORARY: sensors are synthesized from the engine's truth state, not produced by a sensor model.
+# "synthesized_temporary" is the only accepted value until the sensor/GPS ticket lands.
+sensor_source = "synthesized_temporary"
+
+[home]                       # geodetic position of the world origin (for the synthesized GPS and barometer)
+lat_deg = 47.397742
+lon_deg = 8.545594
+alt_m = 488.0
+
+[mag]                        # world magnetic field, East/North/Up, gauss (for the synthesized magnetometer)
+east_gauss = 0.0
+north_gauss = 0.2
+up_gauss = -0.4
+
+[px4]                        # PX4 adapter (fc-container/px4/README.md); the defaults are those of PX4 SITL instance 0
+hil_port = 4560              # TCP port this process listens on; PX4's simulator_mavlink connects here (lockstep link)
+mavlink_local_port = 14540   # UDP port this process binds; PX4's "onboard" MAVLink instance sends here
+mavlink_host = "127.0.0.1"   # PX4's onboard MAVLink instance (pilot input and telemetry link)
+mavlink_port = 14580         # UDP port PX4's onboard MAVLink instance listens on
+no_gps_mode = "altctl"       # PX4 mode for no_gps_hold: "altctl" (angle sticks + baro altitude hold) or "stabilized"
+                             # (angle sticks + direct throttle); never acro. Pending Jetson's description of this mode.
+max_tilt_deg = 25            # tilt of a full roll/pitch stick, degrees (PX4 MPC_MAN_TILT_MAX; written to the airframe)
+max_yaw_rate_dps = 45        # yaw rate of a full yaw stick, deg/s (PX4 MPC_MAN_Y_MAX; written to the airframe)
+sensor_dither = true         # add tiny noise to the sensors: PX4 drops a sensor whose value never changes (it looks stuck),
+                             # and the synthesized sensors are noise free. Turn off when the sensors carry real noise.
+
+[log]
+level = "info"               # trace, debug, info, warn, error
+
+# ---------------------------------------------------------------------------------------------------------------
+# SPOOFED PILOT INPUT (TEMPORARY). There is no real pilot yet: this script stands in for one. It is replaced when
+# real pilot input exists, and the bridge flags it at startup, in the stats line and in the telemetry.
+#
+# Time is engine simulation time in seconds. Values hold until the next keyframe ("hold") or ramp ("linear").
+# Sticks are attitude ANGLE demands (roll/pitch/yaw in [-1, 1], throttle in [0, 1]); there is no rate mode.
+# What a throttle value means is up to the adapter; for the PX4 position/altitude modes about 0.5 holds altitude,
+# above climbs (0.8 is about 1 m/s up), below descends (0.1 is about 0.7 m/s down).
+# mode is "gps_hold" or "no_gps_hold"; arm is the requested armed state.
+# ---------------------------------------------------------------------------------------------------------------
+[pilot]
+interpolation = "hold"
+
+# Wait for the estimator and GPS to settle (disarmed). PX4 reports ready for takeoff about 10 s of simulation time after
+# the engine connects, so arming at 20 s is safe.
+[[pilot.script]]
+time_s = 0.0
+throttle = 0.5
+mode = "gps_hold"
+arm = false
+
+# Arm in GPS hold.
+[[pilot.script]]
+time_s = 20.0
+throttle = 0.5
+mode = "gps_hold"
+arm = true
+
+# Climb to about 10 m.
+[[pilot.script]]
+time_s = 24.0
+throttle = 0.8
+mode = "gps_hold"
+arm = true
+
+# Hold altitude (about 10 m above the start).
+[[pilot.script]]
+time_s = 37.0
+throttle = 0.5
+mode = "gps_hold"
+arm = true
+
+# Switch to no-GPS-hold and hold for a few seconds.
+[[pilot.script]]
+time_s = 50.0
+throttle = 0.5
+mode = "no_gps_hold"
+arm = true
+
+# Small pitch angle demands, forward then back.
+[[pilot.script]]
+time_s = 54.0
+pitch = 0.1
+throttle = 0.5
+mode = "no_gps_hold"
+arm = true
+
+[[pilot.script]]
+time_s = 58.0
+pitch = -0.1
+throttle = 0.5
+mode = "no_gps_hold"
+arm = true
+
+[[pilot.script]]
+time_s = 62.0
+throttle = 0.5
+mode = "no_gps_hold"
+arm = true
+
+# Throttle down to descend and land. PX4 detects the landing and disarms by itself.
+[[pilot.script]]
+time_s = 66.0
+throttle = 0.1
+mode = "no_gps_hold"
+arm = true
+
+# Disarm (a no-op if PX4 has already disarmed after landing; PX4 refuses to disarm in the air).
+[[pilot.script]]
+time_s = 100.0
+throttle = 0.0
+mode = "no_gps_hold"
+arm = false

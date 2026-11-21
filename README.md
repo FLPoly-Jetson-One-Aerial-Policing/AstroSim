@@ -4,12 +4,12 @@ AstroSim is a flight simulator for the **Jetson ONE**, a single-seat electric ai
 
 ## Project status
 
-**Early development.** Only the physics engine works so far: the part that calculates how the aircraft moves. The flight computer and the visual display are still to be built, so there is nothing you can see or fly yet.
+**Early development.** The physics engine and a first flight computer work. The flight computer flies a scripted test flight on its own; real pilot controls and the visual display are still to be built, so there is nothing you can see or fly yourself yet.
 
 | Part | What it does | Status |
 |-|-|-|
 | Physics engine | Works out where the aircraft goes, given how hard each motor is pushing | **Working** (with a placeholder aircraft model) |
-| Flight computer | Turns the pilot's controls into motor commands, as the real aircraft's onboard computer does | Not started (will start with the open-source PX4 autopilot) |
+| Flight computer | Turns the pilot's controls into motor commands, as the real aircraft's onboard computer does | **Working, temporary inputs**: runs the open-source PX4 autopilot behind a generic flight computer interface, with two flight modes (GPS hold and no-GPS hold, both steered by tilt angle). The pilot's controls are a script and the sensors are computed from the engine's true state; both are stopgaps |
 | Display | Shows the aircraft and the world, on a screen or in a VR headset | Not started (likely Unity) |
 | Aircraft model | The simulated Jetson ONE: size, weight, motor positions | Generated from an aircraft data file (best-guess values; to be replaced with manufacturer data) |
 
@@ -18,7 +18,9 @@ AstroSim is a flight simulator for the **Jetson ONE**, a single-seat electric ai
 ```
  Pilot controls ──▶ Flight computer ──(power for each of the 8 motors)──▶ Physics engine
                                                                                │
-                         Display ◀──(position, speed, orientation)─────────────┘
+                         Display ◀──(position, speed, orientation)─────────────┤
+                            ▲                                                  │
+                            └──(flight data: mode, GPS, altitude, attitude)── Flight computer
 ```
 
 Each part is a separate program that talks to the others over a local network connection. This means:
@@ -52,11 +54,38 @@ docker exec astrosim astrosim-probe --subscribe
 
 Press `Ctrl+C` to stop either command.
 
+## Trying the flight computer
+
+You need both the engine and the flight computer images built. Run them side by side in a pod (a pod lets containers share one network connection; this uses Podman, and Docker users can use a shared network instead, see [fc-container/README.md](fc-container/README.md)):
+
+```
+podman pod create --name astrosim -p 8765:8765/udp -p 8766:8766/udp
+podman run -d --pod astrosim --name engine astrosim-engine
+podman run -d --pod astrosim --name fc astrosim-fc
+```
+
+Start them together: the flight computer follows a script timed from the engine's clock. Then watch the aircraft climb to about 10 metres, hold, and land:
+
+```
+docker exec engine astrosim-probe --subscribe
+```
+
+and the flight computer's own data (mode, armed, GPS, attitude, altitude):
+
+```
+docker exec fc astrosim-fc-probe --telemetry
+```
+
+(Use `podman exec` if you started the containers with Podman; the commands are otherwise the same.) The flight data is marked as using synthesized sensors and a spoofed pilot. Press `Ctrl+C` to stop the probes.
+
 ## Documentation
 
 | If you want to... | Read |
 |-|-|
 | Build, configure or run the engine | [gazebo-container/README.md](gazebo-container/README.md) |
 | Write a flight computer or display that talks to the engine | [shared/proto/PROTOCOL.md](shared/proto/PROTOCOL.md) |
+| Build, configure or run the flight computer | [fc-container/README.md](fc-container/README.md) |
+| Plug in a different flight computer | [shared/fc/FC_INTERFACE.md](shared/fc/FC_INTERFACE.md) |
+| Show flight computer data on a display | [shared/proto/FC_TELEMETRY.md](shared/proto/FC_TELEMETRY.md) |
 | Understand the background research and design decisions | [docs/](docs/) |
 | Edit the aircraft data file (schema, units, keys) | [shared/aircraft/AIRCRAFT.md](shared/aircraft/AIRCRAFT.md) |

@@ -1,11 +1,11 @@
 /** @file log.cpp @brief Logger implementation. */
-#include "log.hpp"
+#include "astrosim/log/log.hpp"
 
 #include <atomic>
 #include <chrono>
 #include <cstdio>
 
-namespace astrosim::gateway::log {
+namespace astrosim::log {
 
 namespace {
 std::atomic<Level> g_level{Level::Info};
@@ -60,4 +60,4 @@ std::optional<std::uint64_t> RateLimiter::allow(const std::string& key, Clock::t
   return std::nullopt;
 }
 
-}  // namespace astrosim::gateway::log
+}  // namespace astrosim::log

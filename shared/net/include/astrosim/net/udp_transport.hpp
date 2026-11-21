@@ -2,6 +2,10 @@
 /**
  * @file udp_transport.hpp
  * @brief Non-blocking IPv4 UDP implementation of Transport (POSIX sockets).
+ *
+ * @warning POSIX only (BSD sockets, poll-able descriptor). This is container-only code: it runs inside the Linux
+ * engine and flight computer containers. Runtime code that must work on Windows/macOS uses the OS-free Transport
+ * abstraction in transport.hpp and gets its own platform implementation.
  */
 #include <chrono>
 #include <cstdint>
@@ -9,10 +13,10 @@
 #include <span>
 #include <string>
 
-#include "log.hpp"
-#include "transport.hpp"
+#include "astrosim/log/log.hpp"
+#include "astrosim/net/transport.hpp"
 
-namespace astrosim::gateway {
+namespace astrosim::net {
 
 /** @brief UDP socket bound to a local IPv4 address; owns and closes the descriptor. */
 class UdpTransport : public Transport {
@@ -56,4 +60,4 @@ class UdpTransport : public Transport {
   log::RateLimiter send_warn_{std::chrono::seconds(5)};
 };
 
-}  // namespace astrosim::gateway
+}  // namespace astrosim::net

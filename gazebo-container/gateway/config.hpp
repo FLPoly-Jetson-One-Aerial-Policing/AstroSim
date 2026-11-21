@@ -42,7 +42,7 @@ struct Config {
   };
   /** @brief Rates and timeouts. All values are > 0. */
   struct Timing {
-    double state_rate_hz = 60;        ///< State broadcast rate.
+    double state_rate_hz = 250;       ///< State broadcast rate (250: PX4's EKF needs IMU data at >= 250 Hz).
     double deadman_timeout_s = 0.5;   ///< Silence after which motors are zeroed.
     double lease_timeout_s = 1.0;     ///< Controller silence after which the lease is released.
     double subscriber_timeout_s = 5;  ///< Subscriber silence after which it is dropped.

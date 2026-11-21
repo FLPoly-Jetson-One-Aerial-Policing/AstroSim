@@ -4,6 +4,8 @@ Normative wire specification between the AstroSim physics engine (gateway) and i
 
 Key words MUST / SHOULD are used as in RFC 2119.
 
+The flight computer's avionics telemetry is a separate stream on its own port with its own magic; see [FC_TELEMETRY.md](FC_TELEMETRY.md).
+
 ## 1. Transport
 
 | Item | Value |
