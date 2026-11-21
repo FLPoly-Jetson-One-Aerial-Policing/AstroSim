@@ -2,6 +2,23 @@
 
 Status: notes for the production architecture. The PoC will not be refactored; it is throwaway.
 
+## Decisions taken (#45)
+
+The FC split is built as the `fc-container` (see [../fc-container/README.md](../fc-container/README.md)).
+
+- **Adapter boundary.** `shared/fc` defines an FC-agnostic `FlightComputer` interface ([FC_INTERFACE.md](../shared/fc/FC_INTERFACE.md)). The FC runs in its own container with a bridge that talks to the engine; the engine protocol is unchanged.
+- **Two modes only.** GPS hold and no-GPS hold, both commanding attitude angle from the sticks. No acro.
+- **PX4 mode mapping.** GPS hold is POSCTL; no-GPS hold is ALTCTL (default) or STABILIZED (`[px4] no_gps_mode`).
+- **Sensors (temporary).** Synthesized from engine truth behind `SensorSource`, as a stopgap until the sensor/GPS ticket.
+- **Pilot (temporary).** A scripted spoof behind `PilotSource`, until the input ticket.
+- **Avionics telemetry.** The FC publishes it on UDP 8766 ([FC_TELEMETRY.md](../shared/proto/FC_TELEMETRY.md)); displays use the engine (8765) for truth and the FC for avionics.
+
+Open questions (section 5) status:
+
+- Process boundary for SITL: **answered** (separate container, UDP to the engine, PX4 internal to the FC container). The latency budget is still open.
+- State estimate vs sim-truth: **partly answered**. PX4 runs its own estimator on synthesized sensors; what the real sensors look like is still open.
+- The real FC's I/O (protocol, sensor set, motor command scale and rate): **still open**, pending the Jetson FC description. The no-GPS mode mapping is likewise pending.
+
 ## 1. Where flight behaviour lives in the PoC
 
 | Piece | Location | Role |
