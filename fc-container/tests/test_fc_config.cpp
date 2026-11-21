@@ -105,8 +105,12 @@ north_gauss = 0.3
 up_gauss = 0.4
 [px4]
 hil_port = 5000
-pilot_host = "px4"
-pilot_port = 14541
+mavlink_local_port = 14541
+mavlink_host = "px4"
+mavlink_port = 14581
+max_tilt_deg = 30
+max_yaw_rate_dps = 60
+sensor_dither = false
 no_gps_mode = "stabilized"
 [log]
 level = "debug"
@@ -119,7 +123,12 @@ level = "debug"
   EXPECT_EQ(c.telemetry.max_subscribers, 2u);
   EXPECT_EQ(c.fc.adapter, "null");
   EXPECT_DOUBLE_EQ(c.home.lat_deg, -33.5);
-  EXPECT_EQ(c.px4.pilot_host, "px4");
+  EXPECT_EQ(c.px4.mavlink_host, "px4");
+  EXPECT_EQ(c.px4.mavlink_local_port, 14541);
+  EXPECT_EQ(c.px4.mavlink_port, 14581);
+  EXPECT_DOUBLE_EQ(c.px4.max_tilt_deg, 30);
+  EXPECT_DOUBLE_EQ(c.px4.max_yaw_rate_dps, 60);
+  EXPECT_FALSE(c.px4.sensor_dither);
   EXPECT_EQ(c.px4.no_gps_mode, "stabilized");
   EXPECT_EQ(c.log.level, "debug");
   const fc::SynthConfig s = c.synthConfig();
@@ -192,6 +201,8 @@ TEST(FcConfig, RejectsBadValues) {
   EXPECT_NE(errorOf("[log]\nlevel = \"loud\"\n").find("log.level"), std::string::npos);
   EXPECT_NE(errorOf("[px4]\nno_gps_mode = \"acro\"\n").find("px4.no_gps_mode"), std::string::npos);
   EXPECT_NE(errorOf("[px4]\nhil_port = 70000\n").find("px4.hil_port"), std::string::npos);
+  EXPECT_NE(errorOf("[px4]\nmax_tilt_deg = 90\n").find("px4.max_tilt_deg"), std::string::npos);
+  EXPECT_NE(errorOf("[px4]\nmavlink_host = \"\"\n").find("px4.mavlink_host"), std::string::npos);
 }
 
 TEST(FcConfig, AdapterAndSensorSourceAreRestricted) {

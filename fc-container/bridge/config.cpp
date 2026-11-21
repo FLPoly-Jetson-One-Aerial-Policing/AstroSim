@@ -251,16 +251,24 @@ void readMag(const toml::table& root, const EnvLookup& env, Config::Mag& out) {
 
 void readPx4(const toml::table& root, const EnvLookup& env, Config::Px4& out) {
   const toml::table* t = sectionTable(root, "px4");
-  if (t) rejectUnknownKeys(*t, "px4", {"hil_port", "pilot_host", "pilot_port", "no_gps_mode"});
+  if (t) {
+    rejectUnknownKeys(*t, "px4",
+                      {"hil_port", "mavlink_local_port", "mavlink_host", "mavlink_port", "no_gps_mode", "max_tilt_deg",
+                       "max_yaw_rate_dps", "sensor_dither"});
+  }
   const SectionReader r(t, "px4", env);
   out.hil_port = r.getPort("hil_port", out.hil_port);
-  out.pilot_host = r.getString("pilot_host", out.pilot_host);
-  if (out.pilot_host.empty()) fail("px4.pilot_host", "must not be empty");
-  out.pilot_port = r.getPort("pilot_port", out.pilot_port);
+  out.mavlink_local_port = r.getPort("mavlink_local_port", out.mavlink_local_port);
+  out.mavlink_host = r.getString("mavlink_host", out.mavlink_host);
+  if (out.mavlink_host.empty()) fail("px4.mavlink_host", "must not be empty");
+  out.mavlink_port = r.getPort("mavlink_port", out.mavlink_port);
   out.no_gps_mode = r.getString("no_gps_mode", out.no_gps_mode);
   if (out.no_gps_mode != "altctl" && out.no_gps_mode != "stabilized") {
     fail("px4.no_gps_mode", std::format("must be \"altctl\" or \"stabilized\" (got '{}')", out.no_gps_mode));
   }
+  out.max_tilt_deg = r.getInRange("max_tilt_deg", out.max_tilt_deg, 1, 60);
+  out.max_yaw_rate_dps = r.getInRange("max_yaw_rate_dps", out.max_yaw_rate_dps, 1, 360);
+  out.sensor_dither = r.getBool("sensor_dither", out.sensor_dither);
 }
 
 /** @brief Parse one [[pilot.script]] table. Not overridable from the environment. */

@@ -80,13 +80,22 @@ struct Config {
     double up_gauss = -0.4;     ///< Up component (negative in the northern hemisphere).
   };
   /**
-   * @brief PX4 adapter settings ([px4]). PLACEHOLDER: owned by the PX4 adapter; extend as it needs.
+   * @brief PX4 adapter settings ([px4]); see fc-container/px4/README.md.
+   *
+   * Two links to PX4 inside the FC container: the HIL link (this process listens on TCP, PX4's simulator_mavlink
+   * connects) and the MAVLink link to PX4's "onboard" instance (UDP; this process listens on mavlink_local_port,
+   * PX4 sends there and listens on mavlink_port). The defaults are those of PX4 SITL instance 0.
    */
   struct Px4 {
     std::uint16_t hil_port = 4560;               ///< TCP port the adapter listens on for PX4's HIL connection.
-    std::string pilot_host = "127.0.0.1";        ///< Host of PX4's onboard MAVLink instance (pilot link).
-    std::uint16_t pilot_port = 14540;            ///< UDP port of PX4's onboard MAVLink instance.
+    std::uint16_t mavlink_local_port = 14540;    ///< UDP port this process binds (PX4's onboard instance sends here).
+    std::string mavlink_host = "127.0.0.1";      ///< IPv4 address of PX4's onboard MAVLink instance.
+    std::uint16_t mavlink_port = 14580;          ///< UDP port PX4's onboard MAVLink instance listens on.
     std::string no_gps_mode = "altctl";          ///< PX4 mode for kNoGpsHold: "altctl" or "stabilized".
+    double max_tilt_deg = 25;                    ///< Tilt of a full roll/pitch stick (MPC_MAN_TILT_MAX), degrees, (0, 60].
+    double max_yaw_rate_dps = 45;                ///< Yaw rate of a full yaw stick (MPC_MAN_Y_MAX), deg/s, (0, 360].
+    /// Add a tiny dither to the sensors: PX4 treats a constant (noise-free) sensor as stuck. See px4/README.md.
+    bool sensor_dither = true;
   };
   /**
    * @brief SPOOFED, TEMPORARY pilot script ([pilot], [[pilot.script]]).

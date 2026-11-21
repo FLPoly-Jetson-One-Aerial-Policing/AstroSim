@@ -8,8 +8,9 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 option(ASTROSIM_SANITIZE "Build with AddressSanitizer and UndefinedBehaviorSanitizer" OFF)
 option(ASTROSIM_BUILD_TESTS "Build and register unit tests (including shared/proto, aircraft, log, net and fc)" ON)
-# The PX4 adapter lives in fc-container/px4 (a separate change). When ON, that directory must define the target
-# astrosim_px4_adapter exposing `makePx4Adapter(const Config&)` (see bridge/adapter.hpp).
+# When ON, fc-container/px4 is built: the target astrosim_px4_adapter exposing `makePx4Adapter(const Config&)` (see
+# bridge/adapter.hpp) and the astrosim-px4-airframe tool. Needs the MAVLink C headers (ASTROSIM_MAVLINK_DIR, or they
+# are fetched; see px4/CMakeLists.txt).
 option(ASTROSIM_BUILD_PX4 "Build the PX4 SITL adapter (fc-container/px4)" OFF)
 
 # Applied globally, before add_subdirectory, so the shared libraries are sanitized too.
@@ -40,16 +41,29 @@ function(astrosim_warnings target)
   target_compile_options(${target} PRIVATE -Wall -Wextra -Wpedantic -Werror)
 endfunction()
 
-# Pure logic: FcBridge, configuration, adapter factory, null adapter. No sockets, no clock reads.
+if(ASTROSIM_BUILD_TESTS)
+  find_package(GTest REQUIRED)
+  include(GoogleTest)
+endif()
+
+# Configuration: TOML + ASTROSIM_* environment overrides. A separate library so the PX4 adapter and the airframe
+# generator (which both read [px4]) can use it without depending on the bridge core (which links the adapter).
+add_library(astrosim_fc_config STATIC bridge/config.cpp)
+target_include_directories(astrosim_fc_config PUBLIC bridge)
+target_link_libraries(astrosim_fc_config PUBLIC astrosim::fc astrosim::log tomlplusplus::tomlplusplus)
+astrosim_warnings(astrosim_fc_config)
+
+# Pure logic: FcBridge, adapter factory, null adapter. No sockets, no clock reads.
 add_library(astrosim_fc_bridge_core STATIC
   bridge/adapter.cpp
-  bridge/config.cpp
   bridge/fc_bridge.cpp)
 target_include_directories(astrosim_fc_bridge_core PUBLIC bridge)
 target_link_libraries(astrosim_fc_bridge_core PUBLIC
-  astrosim::proto astrosim::aircraft astrosim::log astrosim::net astrosim::fc tomlplusplus::tomlplusplus)
+  astrosim_fc_config astrosim::proto astrosim::aircraft astrosim::log astrosim::net astrosim::fc)
 astrosim_warnings(astrosim_fc_bridge_core)
 
+# The PX4 adapter library (astrosim_px4_adapter, makePx4Adapter) and the airframe generator
+# (astrosim-px4-airframe). The adapter depends on astrosim_fc_config only, so linking it into the core is acyclic.
 if(ASTROSIM_BUILD_PX4)
   add_subdirectory(px4)
   target_link_libraries(astrosim_fc_bridge_core PUBLIC astrosim_px4_adapter)
@@ -68,10 +82,11 @@ astrosim_warnings(astrosim-fc-probe)
 
 include(GNUInstallDirs)
 install(TARGETS astrosim-fc-bridge astrosim-fc-probe RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
+if(ASTROSIM_BUILD_PX4)
+  install(TARGETS astrosim-px4-airframe RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
+endif()
 
 if(ASTROSIM_BUILD_TESTS)
-  find_package(GTest REQUIRED)
-  include(GoogleTest)
   foreach(name test_fc_bridge test_fc_config)
     add_executable(${name} tests/${name}.cpp)
     target_link_libraries(${name} PRIVATE astrosim_fc_bridge_core GTest::gtest_main)

@@ -36,11 +36,17 @@ east_gauss = 0.0
 north_gauss = 0.2
 up_gauss = -0.4
 
-[px4]                        # PX4 adapter settings (placeholder section, owned by the PX4 adapter)
-hil_port = 4560              # TCP port the adapter listens on; PX4's simulator connects here
-pilot_host = "127.0.0.1"     # PX4's onboard MAVLink instance (pilot input link)
-pilot_port = 14540
-no_gps_mode = "altctl"       # PX4 mode for no_gps_hold: "altctl" or "stabilized" (never acro)
+[px4]                        # PX4 adapter (fc-container/px4/README.md); the defaults are those of PX4 SITL instance 0
+hil_port = 4560              # TCP port this process listens on; PX4's simulator_mavlink connects here (lockstep link)
+mavlink_local_port = 14540   # UDP port this process binds; PX4's "onboard" MAVLink instance sends here
+mavlink_host = "127.0.0.1"   # PX4's onboard MAVLink instance (pilot input and telemetry link)
+mavlink_port = 14580         # UDP port PX4's onboard MAVLink instance listens on
+no_gps_mode = "altctl"       # PX4 mode for no_gps_hold: "altctl" (angle sticks + baro altitude hold) or "stabilized"
+                             # (angle sticks + direct throttle); never acro. Pending Jetson's description of this mode.
+max_tilt_deg = 25            # tilt of a full roll/pitch stick, degrees (PX4 MPC_MAN_TILT_MAX; written to the airframe)
+max_yaw_rate_dps = 45        # yaw rate of a full yaw stick, deg/s (PX4 MPC_MAN_Y_MAX; written to the airframe)
+sensor_dither = true         # add tiny noise to the sensors: PX4 drops a sensor whose value never changes (it looks stuck),
+                             # and the synthesized sensors are noise free. Turn off when the sensors carry real noise.
 
 [log]
 level = "info"               # trace, debug, info, warn, error
