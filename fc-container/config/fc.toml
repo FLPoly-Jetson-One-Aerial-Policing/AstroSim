@@ -58,13 +58,14 @@ level = "info"               # trace, debug, info, warn, error
 # Time is engine simulation time in seconds. Values hold until the next keyframe ("hold") or ramp ("linear").
 # Sticks are attitude ANGLE demands (roll/pitch/yaw in [-1, 1], throttle in [0, 1]); there is no rate mode.
 # What a throttle value means is up to the adapter; for the PX4 position/altitude modes about 0.5 holds altitude,
-# above climbs, below descends.
+# above climbs (0.8 is about 1 m/s up), below descends (0.1 is about 0.7 m/s down).
 # mode is "gps_hold" or "no_gps_hold"; arm is the requested armed state.
 # ---------------------------------------------------------------------------------------------------------------
 [pilot]
 interpolation = "hold"
 
-# Wait for the estimator and GPS to settle (disarmed).
+# Wait for the estimator and GPS to settle (disarmed). PX4 reports ready for takeoff about 10 s of simulation time after
+# the engine connects, so arming at 20 s is safe.
 [[pilot.script]]
 time_s = 0.0
 throttle = 0.5
@@ -81,13 +82,13 @@ arm = true
 # Climb to about 10 m.
 [[pilot.script]]
 time_s = 24.0
-throttle = 0.7
+throttle = 0.8
 mode = "gps_hold"
 arm = true
 
-# Hold altitude.
+# Hold altitude (about 10 m above the start).
 [[pilot.script]]
-time_s = 34.0
+time_s = 37.0
 throttle = 0.5
 mode = "gps_hold"
 arm = true
@@ -120,16 +121,16 @@ throttle = 0.5
 mode = "no_gps_hold"
 arm = true
 
-# Throttle down to land.
+# Throttle down to descend and land. PX4 detects the landing and disarms by itself.
 [[pilot.script]]
-time_s = 70.0
-throttle = 0.3
+time_s = 66.0
+throttle = 0.1
 mode = "no_gps_hold"
 arm = true
 
-# Disarm.
+# Disarm (a no-op if PX4 has already disarmed after landing; PX4 refuses to disarm in the air).
 [[pilot.script]]
-time_s = 90.0
+time_s = 100.0
 throttle = 0.0
 mode = "no_gps_hold"
 arm = false

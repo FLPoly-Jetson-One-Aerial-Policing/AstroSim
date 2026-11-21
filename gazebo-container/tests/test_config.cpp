@@ -36,7 +36,7 @@ TEST(Config, DefaultsFileParsesToDefaults) {
   EXPECT_EQ(c.network.port, 8765);
   EXPECT_EQ(c.network.bind, "0.0.0.0");
   EXPECT_EQ(c.network.max_subscribers, 8u);
-  EXPECT_EQ(c.timing.state_rate_hz, 60);
+  EXPECT_EQ(c.timing.state_rate_hz, 250);
   EXPECT_EQ(c.timing.deadman_timeout_s, 0.5);
   EXPECT_EQ(c.timing.lease_timeout_s, 1.0);
   EXPECT_EQ(c.timing.subscriber_timeout_s, 5);

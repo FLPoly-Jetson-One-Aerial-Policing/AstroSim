@@ -38,7 +38,7 @@ comes from the aircraft file. Invalid configuration prints an error naming the k
 | `network.port` | 8765 | `ASTROSIM_NETWORK_PORT` | UDP port |
 | `network.bind` | "0.0.0.0" | `ASTROSIM_NETWORK_BIND` | IPv4 bind address |
 | `network.max_subscribers` | 8 | `ASTROSIM_NETWORK_MAX_SUBSCRIBERS` | Concurrent State subscribers |
-| `timing.state_rate_hz` | 60 | `ASTROSIM_TIMING_STATE_RATE_HZ` | State broadcast rate |
+| `timing.state_rate_hz` | 250 | `ASTROSIM_TIMING_STATE_RATE_HZ` | State broadcast rate |
 | `timing.deadman_timeout_s` | 0.5 | `ASTROSIM_TIMING_DEADMAN_TIMEOUT_S` | No Control for this long: motors zeroed |
 | `timing.lease_timeout_s` | 1.0 | `ASTROSIM_TIMING_LEASE_TIMEOUT_S` | Controller silent this long: another may take over |
 | `timing.subscriber_timeout_s` | 5 | `ASTROSIM_TIMING_SUBSCRIBER_TIMEOUT_S` | Subscriber silent this long: dropped |

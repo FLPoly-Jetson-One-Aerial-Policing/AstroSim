@@ -7,7 +7,8 @@ bind = "0.0.0.0"         # IPv4 address to bind
 max_subscribers = 8      # concurrent State subscribers
 
 [timing]
-state_rate_hz = 60           # State broadcast rate
+state_rate_hz = 250          # State broadcast rate. 250 Hz: PX4's EKF2 needs IMU data at >= 250 Hz (IMU_INTEG_RATE),
+                             # and the flight computer container derives one sensor sample from each State
 deadman_timeout_s = 0.5      # no Control for this long -> motors zeroed
 lease_timeout_s = 1.0        # controller silent this long -> another may take over
 subscriber_timeout_s = 5     # subscriber silent this long -> dropped
