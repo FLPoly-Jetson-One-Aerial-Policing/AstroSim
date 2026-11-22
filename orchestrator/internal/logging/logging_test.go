@@ -2,6 +2,8 @@ package logging
 
 import (
 	"bytes"
+	"context"
+	"io"
 	"log/slog"
 	"strings"
 	"testing"
@@ -68,5 +70,22 @@ func TestHandlerLevel(t *testing.T) {
 	log.Debug("yes")
 	if !strings.Contains(buf.String(), "DEBUG yes") {
 		t.Fatalf("got %q", buf.String())
+	}
+}
+
+// failWriter simulates a stderr whose terminal has gone away.
+type failWriter struct{ n int }
+
+func (w *failWriter) Write([]byte) (int, error) { w.n++; return 0, io.ErrClosedPipe }
+
+func TestHandlerIgnoresWriteErrors(t *testing.T) {
+	w := &failWriter{}
+	log := New(w, slog.LevelInfo)
+	log.Info("terminal is gone") // must neither panic nor block
+	if w.n != 1 {
+		t.Fatalf("writes = %d, want 1", w.n)
+	}
+	if err := NewHandler(w, slog.LevelInfo).Handle(context.Background(), slog.Record{}); err != nil {
+		t.Errorf("Handle returned %v, want nil", err)
 	}
 }

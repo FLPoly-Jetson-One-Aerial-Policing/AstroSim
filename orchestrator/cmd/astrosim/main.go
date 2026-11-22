@@ -3,7 +3,8 @@
 //
 // It checks for a container runtime and the component images, serves the
 // dashboard on localhost (opening it in the browser), and on Start launches
-// and supervises the containers. Ctrl+C stops the containers and exits.
+// and supervises the containers. Ctrl+C, SIGTERM or closing the terminal
+// stops the containers and exits.
 // Run "astrosim --help" for the flags.
 package main
 
@@ -21,7 +22,6 @@ import (
 	"os"
 	"os/signal"
 	"strings"
-	"syscall"
 	"time"
 
 	"github.com/FLPoly-Jetson-One-Aerial-Policing/AstroSim/orchestrator/internal/api"
@@ -74,6 +74,9 @@ func run(args []string, getenv func(string) string, stdout, stderr io.Writer) in
 		fmt.Fprintf(stderr, "astrosim: invalid configuration:\n%s\nRun \"astrosim --help\" for usage.\n", indent(err.Error()))
 		return exitUsage
 	}
+	// If the terminal goes away, logging must not kill the process before
+	// the shutdown signal handler has stopped the containers.
+	defer survivePipeBreak()()
 	level, _ := logging.ParseLevel(cfg.LogLevel) // validated above
 	log := logging.New(stderr, level)
 
@@ -85,6 +88,9 @@ func run(args []string, getenv func(string) string, stdout, stderr io.Writer) in
 	}
 	lock, err := instance.Acquire(lockPath)
 	if errors.Is(err, instance.ErrHeld) {
+		if cfg.Cleanup {
+			return refuseCleanup(lockPath, stdout, log)
+		}
 		return alreadyRunning(lockPath, cfg, stdout, stderr, log)
 	}
 	if err != nil {
@@ -96,6 +102,9 @@ func run(args []string, getenv func(string) string, stdout, stderr io.Writer) in
 	// The runtime is found lazily so the dashboard can still start, and say
 	// what is wrong, when podman or docker is missing or stopped.
 	rt := runtime.NewLazy(runtime.DetectOptions{Name: cfg.Runtime, Path: cfg.RuntimePath})
+	if cfg.Cleanup {
+		return cleanup(rt, cfg.Prune, stdout, log)
+	}
 	pingCtx, cancelPing := context.WithTimeout(context.Background(), 20*time.Second)
 	info, perr := rt.Ping(pingCtx)
 	if perr != nil {
@@ -104,7 +113,7 @@ func run(args []string, getenv func(string) string, stdout, stderr io.Writer) in
 		log.Info("container runtime found", "runtime", info.Name, "version", info.Version, "path", info.Path)
 		// Only while holding the lock is it safe to remove every managed
 		// container: they can only be leftovers of a crashed run.
-		if err := session.CleanupStale(pingCtx, rt); err != nil {
+		if _, err := session.CleanupStale(pingCtx, rt); err != nil {
 			log.Warn("could not remove leftover containers", "err", err)
 		}
 	}
@@ -155,10 +164,10 @@ func run(args []string, getenv func(string) string, stdout, stderr io.Writer) in
 	runErr := make(chan error, 1)
 	go func() { runErr <- sess.Run(context.Background()) }()
 
-	// Signals: the first stops the containers and exits; a second one
+	// Signals (including SIGHUP when the terminal closes): the first stops the containers and exits; a second one
 	// gives up waiting.
 	sigs := make(chan os.Signal, 2)
-	signal.Notify(sigs, os.Interrupt, syscall.SIGTERM)
+	signal.Notify(sigs, quitSignals()...)
 	defer signal.Stop(sigs)
 	go func() {
 		<-sigs
@@ -229,6 +238,56 @@ func alreadyRunning(lockPath string, cfg config.Config, stdout, stderr io.Writer
 		}
 	}
 	return exitOK
+}
+
+// cleanupTimeout bounds the whole --cleanup or --prune run.
+const cleanupTimeout = 2 * time.Minute
+
+// cleanup is the --cleanup and --prune command: it removes what a crashed
+// run left behind, prints one line per removed resource, and returns the
+// exit code. The caller holds the single-instance lock, so no live session
+// can be affected.
+func cleanup(rt runtime.Runtime, prune bool, stdout io.Writer, log *slog.Logger) int {
+	ctx, cancel := context.WithTimeout(context.Background(), cleanupTimeout)
+	defer cancel()
+	if _, err := rt.Ping(ctx); err != nil {
+		log.Error("no usable container runtime; nothing was cleaned up", "err", err)
+		return exitFailure
+	}
+	var removed session.Pruned
+	var err error
+	if prune {
+		removed, err = session.Prune(ctx, rt)
+	} else {
+		removed.Containers, err = session.CleanupStale(ctx, rt)
+	}
+	for _, n := range removed.Containers {
+		fmt.Fprintf(stdout, "removed container %s\n", n)
+	}
+	for _, n := range removed.Networks {
+		fmt.Fprintf(stdout, "removed network %s\n", n)
+	}
+	if err != nil {
+		log.Error("cleanup incomplete", "err", err)
+		return exitFailure
+	}
+	if removed.Empty() {
+		fmt.Fprintln(stdout, "nothing to clean up")
+	}
+	return exitOK
+}
+
+// refuseCleanup handles --cleanup or --prune while another orchestrator is
+// running: removing its containers would pull the simulation out from under
+// it, so it only says where that instance is.
+func refuseCleanup(lockPath string, stdout io.Writer, log *slog.Logger) int {
+	url, err := instance.ReadOwnerURL(lockPath)
+	if err != nil {
+		log.Error("AstroSim is running; stop it before cleaning up", "err", err)
+		return exitFailure
+	}
+	fmt.Fprintf(stdout, "AstroSim is running at %s; stop it before cleaning up\n", url)
+	return exitFailure
 }
 
 // autostart presses Start once the first check has reached "stopped".

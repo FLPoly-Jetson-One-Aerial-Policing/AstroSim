@@ -285,3 +285,45 @@ func TestIsLoopback(t *testing.T) {
 		}
 	}
 }
+
+func TestCleanupAndPrune(t *testing.T) {
+	tests := []struct {
+		name        string
+		args        []string
+		env         map[string]string
+		files       map[string]string
+		cleanup     bool
+		prune       bool
+		invalidWith string
+	}{
+		{name: "neither"},
+		{name: "cleanup", args: []string{"--cleanup"}, cleanup: true},
+		{name: "prune implies cleanup", args: []string{"--prune"}, cleanup: true, prune: true},
+		{name: "both", args: []string{"--cleanup", "--prune"}, cleanup: true, prune: true},
+		{name: "cleanup with autostart flag", args: []string{"--cleanup", "--autostart"}, cleanup: true, invalidWith: "--autostart"},
+		{name: "prune with autostart flag", args: []string{"--prune", "--autostart"}, cleanup: true, prune: true, invalidWith: "--autostart"},
+		{name: "prune with autostart from env", args: []string{"--prune"}, env: map[string]string{"ASTROSIM_ORCH_AUTOSTART": "1"},
+			cleanup: true, prune: true, invalidWith: "--autostart"},
+		{name: "cleanup with autostart from file", args: []string{"--cleanup", "--config", "c.json"},
+			files: map[string]string{"c.json": `{"autostart":true}`}, cleanup: true, invalidWith: "--autostart"},
+		{name: "no environment variable", env: map[string]string{"ASTROSIM_ORCH_CLEANUP": "1", "ASTROSIM_ORCH_PRUNE": "1"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			c, err := load(t, tt.args, tt.env, tt.files)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if c.Cleanup != tt.cleanup || c.Prune != tt.prune {
+				t.Errorf("Cleanup=%v Prune=%v, want %v %v", c.Cleanup, c.Prune, tt.cleanup, tt.prune)
+			}
+			err = c.Validate("linux", nil)
+			switch {
+			case tt.invalidWith == "" && err != nil:
+				t.Errorf("Validate = %v", err)
+			case tt.invalidWith != "" && (err == nil || !strings.Contains(err.Error(), tt.invalidWith)):
+				t.Errorf("Validate = %v, want mention of %s", err, tt.invalidWith)
+			}
+		})
+	}
+}

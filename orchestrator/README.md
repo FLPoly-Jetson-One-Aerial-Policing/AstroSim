@@ -22,7 +22,8 @@ interface is a separate piece and is not part of this program.
 
 2. Run `./astrosim` from the repository root (or `astrosim.exe`). The dashboard opens in your browser at
    `http://127.0.0.1:8770`. Press **Start**.
-3. Press `Ctrl+C` (or close the window) to stop the containers and quit.
+3. Press `Ctrl+C` (or close the window) to stop the containers and quit. See [Shutting down](#shutting-down) for
+   every way of ending it and what happens after a crash.
 
 Closing the browser tab does not stop the simulation. Use `--autostart` to skip the button and `--no-browser` to not
 open a page.
@@ -47,8 +48,14 @@ Settings come from four layers; a later one overrides an earlier one: built-in d
 | `--log-level` | `ASTROSIM_ORCH_LOG_LEVEL` | `logLevel` | `info` | `debug`, `info`, `warn` or `error` |
 | `--config` | `ASTROSIM_ORCH_CONFIG` | n/a | none | JSON configuration file |
 | `--version` | n/a | n/a | n/a | Print the version and exit |
+| `--cleanup` | n/a | n/a | false | Remove leftover AstroSim containers and exit (see [Shutting down](#shutting-down)) |
+| `--prune` | n/a | n/a | false | Like `--cleanup`, and also remove the AstroSim network |
 
 Booleans in environment variables use Go's syntax (`1`, `true`, `0`, `false`). Unknown JSON keys are an error.
+
+`--cleanup`, `--prune` and `--version` are one-shot commands and exist only as flags, with no environment variable or
+JSON key: a setting left in the environment or a file would turn every launch into a cleanup. `--cleanup` and `--prune`
+cannot be combined with `--autostart`, whether that comes from the flag, the environment or the file.
 
 Per-component overrides can only be set in the JSON file, under `components`, keyed by component ID (`engine`, `fc`).
 They adjust a built-in component; they cannot define a new one. Zero or missing values keep the built-in setting:
@@ -80,9 +87,43 @@ They adjust a built-in component; they cannot define a new one. Zero or missing 
 | `stopTimeout` | Grace period given to the container on stop |
 | `disabled` | Remove the component from the stack (not allowed while another enabled component depends on it) |
 
+## Shutting down
+
+The orchestrator stops and removes both containers on every normal way of quitting. Each container's entrypoint
+forwards the stop signal to its processes and waits for them, so nothing is left running inside either.
+
+| How it ends | What happens |
+|-|-|
+| **Stop** button | Stops and removes the containers; the orchestrator keeps running |
+| `Ctrl+C` (SIGINT) | Stops and removes the containers, then exits |
+| `kill` (SIGTERM) | Same as `Ctrl+C` |
+| Terminal closed (SIGHUP, Linux and macOS) | Same as `Ctrl+C`. Logging to the closed terminal is ignored, so it cannot get in the way |
+| Windows console closed, logoff or shutdown | Go reports these as SIGTERM, so it is handled like `kill`. Not yet verified on Windows hardware |
+| Second `Ctrl+C` while stopping | Exits at once (status 130). Containers may be left running |
+| Crash, `kill -9`, power loss | **Abnormal.** Nothing can run a teardown, so the containers keep running until you run `astrosim --cleanup` or start `astrosim` again, which removes them first |
+
+Leftovers can therefore never conflict with the next start: every launch removes all containers labelled
+`astrosim.managed=true` while holding the [instance lock](#single-instance-and-lock-file).
+
+### `--cleanup` and `--prune`
+
+`astrosim --cleanup` removes leftover managed containers and exits, without serving the dashboard or opening a browser.
+It prints one line per removed container, or `nothing to clean up`, and exits 0 (1 on failure). Use it after a crash
+if you do not want to start AstroSim again.
+
+The `astrosim` network is deliberately kept after a run and reused by the next one. `astrosim --prune` does what
+`--cleanup` does and then removes the networks labelled `astrosim.managed=true`; the next start creates it again.
+
+Both take the instance lock first. If an AstroSim is running they print `AstroSim is running at <url>; stop it
+before cleaning up` and exit 1, leaving the session untouched. They only touch resources carrying the label. These are
+never removed, and need removing by hand if you want them gone: containers you started yourself (`engine`, `fc`), the
+top-level README's `astrosim` pod, and an `astrosim` network created before networks were labelled
+(`podman network rm astrosim`).
+
 ## Network modes
 
-**`bridge` (default, all operating systems).** The orchestrator creates a user network named `astrosim`. Each
+**`bridge` (default, all operating systems).** The orchestrator creates a user network named `astrosim`, labelled
+`astrosim.managed=true`, and keeps it between runs (remove it with `--prune`). Each
 container gets a network alias equal to its component ID, so the flight computer reaches the engine as `engine`. The
 engine's UDP port 8765 and the flight computer's 8766 are published on `--publish-addr` (`127.0.0.1` by default), and
 the orchestrator checks health through those published ports from the host.
@@ -125,7 +166,8 @@ user's cache directory (`~/.cache` on Linux, `~/Library/Caches` on macOS, `%Loca
 dashboard URL into it. A second `astrosim` finds that URL, opens the browser there and exits.
 
 While holding the lock, a new orchestrator removes every container labelled `astrosim.managed=true`: they can only be
-leftovers from a crash or a forced quit.
+leftovers from a crash or a forced quit. `--cleanup` and `--prune` do the same on demand, see
+[Shutting down](#shutting-down).
 
 ## HTTP API
 
@@ -213,9 +255,12 @@ Docker. For quick iteration with a local Go toolchain (1.26), `cd orchestrator &
 
 `scripts/smoke.sh` is an end-to-end test against the real images (they must be built, and nothing else may be using
 the managed containers or port 8770). It starts the orchestrator, waits for `running`, kills the engine and waits for
-recovery, stops via the API, restarts, sends SIGINT, and checks after each that no managed containers remain. It
-honours `CONTAINER_RUNTIME` and `ASTROSIM_ORCH_LISTEN`, uses only bash and curl, and exits non-zero on any failure. It
-takes about 15 s.
+recovery, stops via the API, restarts, and checks after SIGINT, SIGTERM, SIGHUP and a closed pseudo-terminal that no
+managed containers remain. It then checks that `--cleanup` is refused while running, that `kill -9` leaves the
+containers behind, that `--cleanup` removes them, and that `--prune` removes the network, which the next start
+recreates. It honours `CONTAINER_RUNTIME` and `ASTROSIM_ORCH_LISTEN`, uses only bash and curl (the pseudo-terminal
+check also needs util-linux `script` and is skipped without it), and exits non-zero on any failure. It takes about
+45 s.
 
 ## Package layout
 
@@ -279,4 +324,4 @@ add one, touch only these files:
 - **Real-image runs were tried on one machine only** (Linux, rootless Podman 5.8, bridge mode and a short host-mode
   run). UDP through the published ports worked there, the flight computer resolved `engine` through the network
   alias, the ready timeouts were far longer than needed, and the stops caused by Stop, SIGINT or a recovery were
-  handled correctly. The `astrosim` network is left behind after a run; it is reused next time.
+  handled correctly.

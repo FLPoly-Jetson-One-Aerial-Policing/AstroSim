@@ -141,9 +141,21 @@ func TestHooks(t *testing.T) {
 	if st, _ := r.Inspect(ctx, "a"); st.Health != "healthy" {
 		t.Errorf("health = %q", st.Health)
 	}
-	_ = r.EnsureNetwork(ctx, "astrosim")
+	_ = r.EnsureNetwork(ctx, "astrosim", map[string]string{"astrosim.managed": "true"})
 	if n := r.Networks(); len(n) != 1 || n[0] != "astrosim" {
 		t.Errorf("networks = %v", n)
+	}
+	if n, _ := r.ListNetworksByLabel(ctx, "astrosim.managed", "true"); len(n) != 1 {
+		t.Errorf("labelled networks = %v", n)
+	}
+	if n, _ := r.ListNetworksByLabel(ctx, "astrosim.managed", "false"); len(n) != 0 {
+		t.Errorf("networks with other label value = %v", n)
+	}
+	if err := r.RemoveNetwork(ctx, "astrosim"); err != nil || len(r.Networks()) != 0 {
+		t.Errorf("RemoveNetwork: err=%v networks=%v", err, r.Networks())
+	}
+	if err := r.RemoveNetwork(ctx, "astrosim"); err != nil {
+		t.Errorf("second RemoveNetwork = %v, want nil", err)
 	}
 	if s, ok := r.Spec("a"); !ok || s.Image != "img" {
 		t.Errorf("spec = %+v", s)

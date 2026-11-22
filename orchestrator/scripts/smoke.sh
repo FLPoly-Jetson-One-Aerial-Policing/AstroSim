@@ -9,7 +9,15 @@
 #   1. a fresh start reaches the "running" phase with every component ready,
 #   2. killing the engine is recovered from (both containers are relaunched),
 #   3. POST /api/v1/stop leaves no managed containers,
-#   4. SIGINT after a second start exits the process and leaves none.
+#   4. SIGINT after a second start exits the process and leaves none,
+#   5. SIGTERM does the same,
+#   6. SIGHUP (the terminal closing) does the same,
+#   7. closing a pseudo-terminal under the orchestrator does the same
+#      (skipped without util-linux "script"),
+#   8. a running orchestrator refuses --cleanup and keeps its session,
+#   9. "kill -9" leaves the containers running (expected), --cleanup then
+#      removes them, and a fresh start reaches running,
+#  10. --prune removes the labelled network, and the next start recreates it.
 #
 # Environment:
 #   CONTAINER_RUNTIME       podman (default) or docker
@@ -29,6 +37,7 @@ bin="${ASTROSIM_BIN:-$root/build/orchestrator/astrosim}"
 base="http://$listen"
 log="$(mktemp "${TMPDIR:-/tmp}/astrosim-smoke.XXXXXX")"
 pid=""
+spid=""
 failures=0
 
 pass() { echo "PASS: $*"; }
@@ -48,6 +57,7 @@ cleanup() {
         for _ in $(seq 1 50); do kill -0 "$pid" 2>/dev/null || break; sleep 0.2; done
         kill -KILL "$pid" 2>/dev/null || true
     fi
+    if [ -n "$spid" ]; then kill -KILL "$spid" 2>/dev/null || true; fi
     local left
     left="$(managed 2>/dev/null || true)"
     if [ -n "$left" ]; then
@@ -62,6 +72,21 @@ cleanup() {
     fi
 }
 trap cleanup EXIT
+
+# networks lists the names of the networks labelled as managed by AstroSim.
+networks() {
+    "$runtime" network ls --filter label=astrosim.managed=true --format '{{.Name}}'
+}
+
+# wait_exit waits up to $1 seconds for the orchestrator process to end.
+wait_exit() {
+    local deadline=$((SECONDS + $1))
+    while [ "$SECONDS" -lt "$deadline" ]; do
+        kill -0 "$pid" 2>/dev/null || { wait "$pid" 2>/dev/null || true; return 0; }
+        sleep 0.2
+    done
+    return 1
+}
 
 # status prints the status JSON, or nothing if the dashboard is unreachable.
 status() { curl -fsS --max-time 3 "$base/api/v1/status" 2>/dev/null || true; }
@@ -118,6 +143,11 @@ if [ -n "$(managed)" ]; then
     exit 2
 fi
 
+if [ -n "$(status)" ]; then
+    echo "FAIL: something already answers at $base; stop that orchestrator first"
+    exit 2
+fi
+
 # 1. Start.
 start_orchestrator --autostart
 if wait_running 180; then
@@ -149,21 +179,113 @@ else
     fail "stop: phase=$(phase), containers: $(managed | tr '\n' ' ')"
 fi
 
-# 4. Start again, then SIGINT.
+# signal_check STEP SIGNAL starts a run, sends the signal and expects the
+# orchestrator to exit and leave no managed containers.
+signal_check() {
+    local name="$1" sig="$2"
+    start_orchestrator --autostart
+    if ! wait_running 180; then
+        fail "$name: not running (phase=$(phase))"
+        return
+    fi
+    kill "-$sig" "$pid"
+    if wait_exit 20 && wait_no_managed 30; then
+        pass "$name: orchestrator exited and no managed containers remain"
+    else
+        fail "$name: still running or containers remain: $(managed | tr '\n' ' ')"
+    fi
+}
+
+# 4. Start again through the API (the orchestrator from step 1 is still up),
+# then SIGINT.
 if post start && wait_running 180; then
     kill -INT "$pid"
-    exited=0
-    for _ in $(seq 1 100); do
-        kill -0 "$pid" 2>/dev/null || { exited=1; break; }
-        sleep 0.2
-    done
-    if [ "$exited" = 1 ] && wait_no_managed 30; then
+    if wait_exit 20 && wait_no_managed 30; then
         pass "SIGINT: orchestrator exited and no managed containers remain"
     else
-        fail "SIGINT: exited=$exited, containers: $(managed | tr '\n' ' ')"
+        fail "SIGINT: containers: $(managed | tr '\n' ' ')"
     fi
 else
     fail "restart after stop: not running (phase=$(phase))"
+fi
+
+# 5, 6. SIGTERM and SIGHUP.
+signal_check SIGTERM TERM
+signal_check SIGHUP HUP
+
+# 7. A closed pseudo-terminal: killing "script" with SIGKILL closes the pty
+# master, so the orchestrator gets the hangup and a failing stderr, exactly
+# as when a terminal window is closed.
+if script --version 2>&1 | grep -q util-linux; then
+    ASTROSIM_ORCH_LISTEN="$listen" script -qfc "$bin --no-browser --autostart" /dev/null \
+        </dev/null >>"$log" 2>&1 &
+    spid=$!
+    if wait_running 180; then
+        kill -KILL "$spid"
+        { wait "$spid"; } 2>/dev/null || true
+        spid=""
+        if wait_no_managed 30 && [ -z "$(status)" ]; then
+            pass "closed terminal: orchestrator exited and no managed containers remain"
+        else
+            fail "closed terminal: containers: $(managed | tr '\n' ' ')"
+        fi
+    else
+        fail "closed terminal: not running (phase=$(phase))"
+    fi
+else
+    echo "SKIP: closed terminal (needs util-linux script)"
+fi
+
+# 8, 9. Cleanup is refused while running; a hard kill leaves containers.
+start_orchestrator --autostart
+if wait_running 180; then
+    if "$bin" --cleanup >/dev/null 2>&1; then
+        fail "cleanup while running: expected a refusal"
+    elif [ "$(phase)" = running ] && [ "$(managed | wc -l)" -ge 2 ]; then
+        pass "cleanup while running: refused and the session is intact"
+    else
+        fail "cleanup while running: the session was disturbed (phase=$(phase))"
+    fi
+    kill -KILL "$pid"
+    wait "$pid" 2>/dev/null || true
+    running="$("$runtime" ps --filter label=astrosim.managed=true --format '{{.Names}}' | wc -l)"
+    if [ "$running" -ge 2 ]; then
+        pass "kill -9: containers keep running (expected: abnormal exit)"
+    else
+        fail "kill -9: expected the containers to remain, found $running running"
+    fi
+    if "$bin" --cleanup >/dev/null && [ -z "$(managed)" ]; then
+        pass "--cleanup: removed the leftover containers"
+    else
+        fail "--cleanup: containers remain: $(managed | tr '\n' ' ')"
+    fi
+    start_orchestrator --autostart
+    if wait_running 180; then
+        pass "restart after kill -9: running"
+    else
+        fail "restart after kill -9: not running (phase=$(phase))"
+    fi
+    kill -INT "$pid"
+    wait_exit 20 || true
+else
+    fail "kill -9 setup: not running (phase=$(phase))"
+fi
+
+# 10. Prune: the labelled network is removed, then recreated by a new start.
+if [ -z "$(networks)" ]; then
+    fail "prune: no labelled network to remove (was it created before labels?)"
+elif "$bin" --prune >/dev/null && [ -z "$(networks)" ]; then
+    pass "--prune: removed the labelled network"
+    start_orchestrator --autostart
+    if wait_running 180 && [ -n "$(networks)" ]; then
+        pass "after prune: the network was recreated and the run is running"
+    else
+        fail "after prune: phase=$(phase), networks: $(networks | tr '\n' ' ')"
+    fi
+    kill -INT "$pid"
+    wait_exit 20 || true
+else
+    fail "prune: the labelled network remains: $(networks | tr '\n' ' ')"
 fi
 
 if [ "$failures" -eq 0 ]; then

@@ -9,6 +9,7 @@ package fake
 import (
 	"context"
 	"fmt"
+	"maps"
 	"sort"
 	"sync"
 	"time"
@@ -39,7 +40,7 @@ type Runtime struct {
 	mu         sync.Mutex
 	info       runtime.Info
 	images     map[string]bool
-	networks   map[string]bool
+	networks   map[string]map[string]string
 	containers map[string]*container
 	nextID     int
 
@@ -60,7 +61,7 @@ func New() *Runtime {
 	return &Runtime{
 		info:       runtime.Info{Name: "podman", Path: "/fake/podman", Version: "5.0.0-fake"},
 		images:     map[string]bool{},
-		networks:   map[string]bool{},
+		networks:   map[string]map[string]string{},
 		containers: map[string]*container{},
 	}
 }
@@ -181,10 +182,35 @@ func (r *Runtime) ImageExists(_ context.Context, image string) (bool, error) {
 }
 
 // EnsureNetwork implements runtime.Runtime.
-func (r *Runtime) EnsureNetwork(_ context.Context, name string) error {
+func (r *Runtime) EnsureNetwork(_ context.Context, name string, labels map[string]string) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	r.networks[name] = true
+	if _, ok := r.networks[name]; !ok {
+		r.networks[name] = maps.Clone(labels)
+	}
+	return nil
+}
+
+// ListNetworksByLabel implements runtime.Runtime.
+func (r *Runtime) ListNetworksByLabel(_ context.Context, key, value string) ([]string, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	var names []string
+	for n, labels := range r.networks {
+		if v, ok := labels[key]; ok && v == value {
+			names = append(names, n)
+		}
+	}
+	sort.Strings(names)
+	return names, nil
+}
+
+// RemoveNetwork implements runtime.Runtime. Removing a missing network
+// succeeds, as with the real implementation.
+func (r *Runtime) RemoveNetwork(_ context.Context, name string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	delete(r.networks, name)
 	return nil
 }
 

@@ -53,7 +53,7 @@ More options and how it works: [orchestrator/README.md](orchestrator/README.md).
 
 ## Running the containers by hand (developers)
 
-The orchestrator does this for you. The commands below start the parts yourself, which is useful when working on one of them. Stop the orchestrator first: it uses the same ports.
+The orchestrator does this for you. The commands below start the parts yourself, which is useful when working on one of them. Stop the orchestrator first: it uses the same ports. After a crash of the orchestrator, `astrosim --cleanup` removes the containers it left running (`astrosim --prune` also removes its network); see [Shutting down](orchestrator/README.md#shutting-down).
 
 ### Trying the physics engine
 
