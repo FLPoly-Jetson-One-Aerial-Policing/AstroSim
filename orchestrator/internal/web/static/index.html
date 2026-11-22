@@ -32,6 +32,7 @@
     <section id="failed" class="card" aria-labelledby="failed-heading" hidden>
       <h2 id="failed-heading">What went wrong</h2>
       <p id="failed-text"></p>
+      <p id="failed-hint"></p>
       <details>
         <summary>Technical details</summary>
         <div id="failed-details"></div>
@@ -41,6 +42,16 @@
     <section class="card" aria-labelledby="components-heading">
       <h2 id="components-heading">Parts of the simulator</h2>
       <ul id="components" class="plain"></ul>
+    </section>
+
+    <section id="logs" class="card" aria-labelledby="logs-heading" hidden>
+      <h2 id="logs-heading"></h2>
+      <p id="logs-where"></p>
+      <div class="cmd">
+        <code id="logs-dir"></code>
+        <button id="logs-copy" type="button" class="copy"></button>
+        <a id="logs-download" class="button" href="/api/v1/logs/download" download></a>
+      </div>
     </section>
   </main>
   <footer>

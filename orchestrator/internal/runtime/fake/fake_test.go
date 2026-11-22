@@ -3,6 +3,10 @@ package fake
 import (
 	"context"
 	"errors"
+	"io"
+	"reflect"
+	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -159,5 +163,152 @@ func TestHooks(t *testing.T) {
 	}
 	if s, ok := r.Spec("a"); !ok || s.Image != "img" {
 		t.Errorf("spec = %+v", s)
+	}
+}
+
+// collect is a goroutine-safe io.Writer.
+type collect struct {
+	mu sync.Mutex
+	b  strings.Builder
+}
+
+func (c *collect) Write(p []byte) (int, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.b.Write(p)
+}
+
+func (c *collect) String() string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.b.String()
+}
+
+func started(t *testing.T) (*Runtime, *time.Time) {
+	t.Helper()
+	r := New()
+	now := time.Date(2026, 11, 22, 19, 0, 0, 0, time.UTC)
+	r.Now = func() time.Time { return now }
+	r.SetImage("img", true)
+	if _, err := r.Run(context.Background(), spec("a")); err != nil {
+		t.Fatal(err)
+	}
+	return r, &now
+}
+
+func TestFollowLogsReplayAndStreams(t *testing.T) {
+	r, _ := started(t)
+	r.WriteLog("a", Stdout, "out one\n")
+	r.WriteLog("a", Stderr, "err one\n")
+	r.WriteLog("a", Stdout, "par")
+	r.WriteLog("a", Stdout, "tial\nsecond\n")
+	r.Exit("a", 0)
+
+	var out, errb collect
+	if err := r.FollowLogs(context.Background(), "a", runtime.LogOptions{Follow: true}, &out, &errb); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.String(), " out one\n") || !strings.Contains(out.String(), "partial\n") || !strings.Contains(out.String(), " second\n") {
+		t.Errorf("stdout = %q", out.String())
+	}
+	if strings.Count(out.String(), "Z ") != 3 {
+		t.Errorf("partial line stamped more than once: %q", out.String())
+	}
+	if !strings.HasSuffix(errb.String(), " err one\n") || strings.Contains(errb.String(), "out") {
+		t.Errorf("stderr = %q", errb.String())
+	}
+	if logs, _ := r.Logs(context.Background(), "a", 5); logs != "out one\nerr one\npartial\nsecond\n" {
+		t.Errorf("Logs = %q", logs)
+	}
+}
+
+func TestFollowLogsSinceIsExclusive(t *testing.T) {
+	r, now := started(t)
+	r.WriteLog("a", Stdout, "one\n")
+	*now = now.Add(time.Second)
+	r.WriteLog("a", Stdout, "two\n")
+	cut := now.Add(-500 * time.Millisecond)
+	var out collect
+	if err := r.FollowLogs(context.Background(), "a", runtime.LogOptions{Since: cut}, &out, io.Discard); err != nil {
+		t.Fatal(err)
+	}
+	if got := out.String(); !strings.HasSuffix(got, " two\n") || strings.Contains(got, "one") {
+		t.Errorf("got %q", got)
+	}
+	out = collect{}
+	last := *now
+	if err := r.FollowLogs(context.Background(), "a", runtime.LogOptions{Since: last}, &out, io.Discard); err != nil || out.String() != "" {
+		t.Errorf("since == last line should be empty: %q %v", out.String(), err)
+	}
+}
+
+func TestFollowLogsLiveAndExit(t *testing.T) {
+	r, _ := started(t)
+	var out collect
+	done := make(chan error, 1)
+	go func() {
+		done <- r.FollowLogs(context.Background(), "a", runtime.LogOptions{Follow: true}, &out, io.Discard)
+	}()
+	r.WriteLog("a", Stdout, "live\n")
+	select {
+	case err := <-done:
+		t.Fatalf("follow ended early: %v", err)
+	case <-time.After(50 * time.Millisecond):
+	}
+	r.Exit("a", 1)
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("follow did not end after exit")
+	}
+	if !strings.Contains(out.String(), "live") {
+		t.Errorf("out = %q", out.String())
+	}
+}
+
+func TestFollowLogsHangErrAndMissing(t *testing.T) {
+	r, _ := started(t)
+	r.FollowHang = map[string]bool{"a": true}
+	r.WriteLog("a", Stdout, "x\n")
+	r.Exit("a", 0)
+	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancel()
+	var out collect
+	err := r.FollowLogs(ctx, "a", runtime.LogOptions{Follow: true}, &out, io.Discard)
+	if !errors.Is(err, context.DeadlineExceeded) || !strings.Contains(out.String(), "x") {
+		t.Fatalf("hang: err=%v out=%q", err, out.String())
+	}
+	// A non-follow read still returns despite the hang knob.
+	if err := r.FollowLogs(context.Background(), "a", runtime.LogOptions{}, io.Discard, io.Discard); err != nil {
+		t.Fatalf("non-follow: %v", err)
+	}
+
+	boom := errors.New("boom")
+	r.FollowErr = func(string) error { return boom }
+	if err := r.FollowLogs(context.Background(), "a", runtime.LogOptions{}, io.Discard, io.Discard); !errors.Is(err, boom) {
+		t.Fatalf("FollowErr: %v", err)
+	}
+	r.FollowErr = nil
+	if err := r.FollowLogs(context.Background(), "nope", runtime.LogOptions{}, io.Discard, io.Discard); !errors.Is(err, runtime.ErrNotFound) {
+		t.Fatalf("missing: %v", err)
+	}
+}
+
+func TestSetLogsAndOps(t *testing.T) {
+	r, _ := started(t)
+	r.WriteLog("a", Stderr, "old\n")
+	r.SetLogs("a", "fresh\n")
+	if got, _ := r.Logs(context.Background(), "a", 1); got != "fresh\n" {
+		t.Errorf("Logs = %q", got)
+	}
+	ctx := context.Background()
+	r.Stop(ctx, "a", time.Second)
+	r.Remove(ctx, "a")
+	want := []string{"run a", "stop a", "remove a"}
+	if got := r.Ops(); !reflect.DeepEqual(got, want) {
+		t.Errorf("Ops = %q, want %q", got, want)
 	}
 }

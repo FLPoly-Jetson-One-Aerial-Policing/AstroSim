@@ -21,6 +21,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -30,6 +31,7 @@ import (
 	"github.com/FLPoly-Jetson-One-Aerial-Policing/AstroSim/orchestrator/internal/config"
 	"github.com/FLPoly-Jetson-One-Aerial-Policing/AstroSim/orchestrator/internal/instance"
 	"github.com/FLPoly-Jetson-One-Aerial-Policing/AstroSim/orchestrator/internal/logging"
+	"github.com/FLPoly-Jetson-One-Aerial-Policing/AstroSim/orchestrator/internal/logs"
 	"github.com/FLPoly-Jetson-One-Aerial-Policing/AstroSim/orchestrator/internal/runtime"
 	"github.com/FLPoly-Jetson-One-Aerial-Policing/AstroSim/orchestrator/internal/session"
 	"github.com/FLPoly-Jetson-One-Aerial-Policing/AstroSim/orchestrator/internal/status"
@@ -47,6 +49,8 @@ const (
 const (
 	// shutdownGrace bounds how long the HTTP server may take to close.
 	shutdownGrace = 2 * time.Second
+	// logCloseGrace bounds how long closing the session log may take.
+	logCloseGrace = 2 * time.Second
 	// probeTimeout bounds the "is the other instance alive" request.
 	probeTimeout = 2 * time.Second
 )
@@ -64,6 +68,18 @@ func run(args []string, getenv func(string) string, stdout, stderr io.Writer) in
 	if err != nil {
 		fmt.Fprintf(stderr, "astrosim: %v\nRun \"astrosim --help\" for usage.\n", err)
 		return exitUsage
+	}
+	if cfg.PrintLogDir {
+		// For scripts: cd "$(astrosim --print-log-dir)". It takes no lock,
+		// touches no runtime and creates nothing, and wins over every
+		// other setting.
+		root, err := logRoot(cfg, goruntime.GOOS, getenv)
+		if err != nil {
+			fmt.Fprintf(stderr, "astrosim: %v\n", err)
+			return exitFailure
+		}
+		fmt.Fprintln(stdout, root)
+		return exitOK
 	}
 	if cfg.ShowVersion {
 		fmt.Fprintf(stdout, "astrosim %s\n", version)
@@ -102,8 +118,56 @@ func run(args []string, getenv func(string) string, stdout, stderr io.Writer) in
 	// The runtime is found lazily so the dashboard can still start, and say
 	// what is wrong, when podman or docker is missing or stopped.
 	rt := runtime.NewLazy(runtime.DetectOptions{Name: cfg.Runtime, Path: cfg.RuntimePath})
+	root, rootErr := logRoot(cfg, goruntime.GOOS, getenv)
 	if cfg.Cleanup {
-		return cleanup(rt, cfg.Prune, stdout, log)
+		code := cleanup(rt, cfg.Prune, stdout, log)
+		if cfg.Prune {
+			// Pruning also archives log folders a hard kill left behind. It
+			// never deletes logs, only the folders it has archived.
+			if rootErr != nil {
+				log.Warn("cannot locate the log folder; leftover logs were not archived", "err", rootErr)
+			} else if !archiveStrayLogs(root, stdout, log) {
+				code = exitFailure
+			}
+		}
+		return code
+	}
+
+	// From here on the orchestrator's own log lines go to the session log
+	// (and, as before, to the terminal). If the log cannot be opened the
+	// orchestrator runs without file logging.
+	sessionID := newSessionID()
+	var rec *logs.Recorder
+	if rootErr == nil {
+		rec, err = logs.Open(logs.Options{
+			Root: root, SessionID: sessionID, Version: version, Source: rt,
+			Console: stderr, Verbose: cfg.Verbose, FileMaxBytes: int64(cfg.LogFileMaxMB) << 20,
+		})
+		if err != nil {
+			rec, rootErr = nil, err
+		}
+	}
+	if w := rec.OrchestratorWriter(); w != nil {
+		log = logging.New(w, level)
+	}
+	if rootErr != nil {
+		log.Warn("session logs are not being saved to files", "err", rootErr)
+	}
+	recovered := make(chan struct{})
+	if rec != nil {
+		go func() {
+			defer close(recovered)
+			recoverLogs(root, rec.Name(), cfg, log)
+		}()
+		// Registered after the lock's defer, so it runs first: the logs are
+		// archived while this instance still holds the lock and no other
+		// instance can be recovering the same folders.
+		defer func() {
+			log.Info("stopped")
+			finishLogs(rec, recovered, cfg, stderr, log)
+		}()
+	} else {
+		defer log.Info("stopped")
 	}
 	pingCtx, cancelPing := context.WithTimeout(context.Background(), 20*time.Second)
 	info, perr := rt.Ping(pingCtx)
@@ -136,8 +200,10 @@ func run(args []string, getenv func(string) string, stdout, stderr io.Writer) in
 		Definitions:  cfg.ApplyOverrides(defs),
 		StackContext: cfg.StackContext(),
 		Policy:       cfg.RestartPolicy(),
-		SessionID:    newSessionID(),
+		SessionID:    sessionID,
 		Version:      version,
+		Logs:         logCapture(rec),
+		LogDir:       rec.Dir(),
 		Broadcaster:  bc,
 		Logger:       log,
 	})
@@ -151,7 +217,7 @@ func run(args []string, getenv func(string) string, stdout, stderr io.Writer) in
 	defer cancelBase()
 	srv := &http.Server{
 		Handler: api.NewHandler(api.Options{
-			Session: sess, Broadcaster: bc, Logger: log,
+			Session: sess, Broadcaster: bc, Logger: log, Logs: rec,
 			AllowedHosts: allowedHosts(ln.Addr(), os.Hostname, net.InterfaceAddrs),
 		}),
 		ReadHeaderTimeout: 10 * time.Second,
@@ -210,8 +276,91 @@ func run(args []string, getenv func(string) string, stdout, stderr io.Writer) in
 	if err := srv.Shutdown(ctx); err != nil {
 		_ = srv.Close()
 	}
-	log.Info("stopped")
 	return code
+}
+
+// logRoot is the folder holding all session logs: --log-dir (or its
+// environment variable or JSON key) made absolute, else the operating
+// system's default for goos.
+func logRoot(cfg config.Config, goos string, getenv func(string) string) (string, error) {
+	if cfg.LogDir != "" {
+		return filepath.Abs(cfg.LogDir)
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		home = ""
+	}
+	return logs.DefaultDir(goos, getenv, home)
+}
+
+// logCapture returns the session's log capture for rec, or nil when file
+// logging is off. (A nil *Recorder inside the interface would also work,
+// but a nil interface lets the session skip the calls altogether.)
+func logCapture(rec *logs.Recorder) session.LogCapture {
+	if rec == nil {
+		return nil
+	}
+	return sessionLogs{rec}
+}
+
+// recoverLogs runs at startup in the background: it archives the folders of
+// sessions that did not shut down cleanly (all but the current one, skip),
+// then applies the retention limits.
+func recoverLogs(root, skip string, cfg config.Config, log *slog.Logger) {
+	archived, err := logs.Recover(root, skip)
+	for _, z := range archived {
+		log.Info("archived the logs of an earlier session", "file", z)
+	}
+	if err != nil {
+		log.Warn("could not archive all earlier session logs", "err", err)
+	}
+	retain(root, cfg, log)
+}
+
+// retain deletes the oldest log archives beyond the configured limits.
+func retain(root string, cfg config.Config, log *slog.Logger) {
+	removed, err := logs.Retain(root, cfg.LogKeep, int64(cfg.LogMaxMB)<<20)
+	for _, z := range removed {
+		log.Info("removed an old log archive", "file", z)
+	}
+	if err != nil {
+		log.Warn("could not remove old log archives", "err", err)
+	}
+}
+
+// finishLogs closes the session log, archives its folder and applies
+// retention, then tells the user where the archive is. It waits for the
+// startup recovery first so the two never work on the same files.
+func finishLogs(rec *logs.Recorder, recovered <-chan struct{}, cfg config.Config, stderr io.Writer, log *slog.Logger) {
+	ctx, cancel := context.WithTimeout(context.Background(), logCloseGrace)
+	defer cancel()
+	if err := rec.Close(ctx); err != nil {
+		log.Warn("closing the session log timed out; the last lines may be missing", "err", err)
+	}
+	<-recovered
+	zp, err := logs.Archive(rec.Dir())
+	if err != nil {
+		// The next start finishes the job (logs.Recover).
+		log.Warn("could not fully archive the session log", "err", err)
+	}
+	if zp != "" {
+		retain(filepath.Dir(rec.Dir()), cfg, log)
+		fmt.Fprintf(stderr, "logs saved to %s\n", zp)
+	}
+}
+
+// archiveStrayLogs is the log part of --prune: it archives every session
+// folder in root. It reports whether that went without error.
+func archiveStrayLogs(root string, stdout io.Writer, log *slog.Logger) bool {
+	archived, err := logs.Recover(root, "")
+	for _, z := range archived {
+		fmt.Fprintf(stdout, "archived logs %s\n", z)
+	}
+	if err != nil {
+		log.Error("could not archive all leftover logs", "err", err)
+		return false
+	}
+	return true
 }
 
 // alreadyRunning handles a failed lock: it finds the owner's dashboard and
@@ -366,11 +515,12 @@ func allowedHosts(a net.Addr, hostname func() (string, error), ifaceAddrs func()
 	return out
 }
 
-// newSessionID returns a random identifier labelling this run's containers.
+// newSessionID returns a random identifier labelling this run's containers
+// and its log folder: always 16 hex digits, which the log folder name needs.
 func newSessionID() string {
 	var b [8]byte
 	if _, err := rand.Read(b[:]); err != nil {
-		return fmt.Sprintf("%x", time.Now().UnixNano())
+		return fmt.Sprintf("%016x", uint64(time.Now().UnixNano()))
 	}
 	return hex.EncodeToString(b[:])
 }

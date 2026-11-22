@@ -100,6 +100,19 @@ type Config struct {
 	NoFail bool `json:"noFail"`
 	// LogLevel is "debug", "info", "warn" or "error".
 	LogLevel string `json:"logLevel"`
+	// LogDir is the folder session logs are kept in. Empty means the
+	// operating system's default location; main makes a relative path absolute.
+	LogDir string `json:"logDir"`
+	// LogKeep is how many session log archives to keep.
+	LogKeep int `json:"logKeep"`
+	// LogMaxMB is the total size, in MB, the kept archives may take up.
+	LogMaxMB int `json:"logMaxMB"`
+	// LogFileMaxMB caps each live log file, in MB; a longer log keeps its
+	// beginning and its most recent part.
+	LogFileMaxMB int `json:"logFileMaxMB"`
+	// Verbose mirrors the combined log, every component's output as well as
+	// the orchestrator's own lines, to the terminal.
+	Verbose bool `json:"verbose"`
 	// Components holds per-component overrides by component ID. Only the
 	// JSON file can set it.
 	Components map[string]ComponentOverride `json:"components,omitempty"`
@@ -117,17 +130,24 @@ type Config struct {
 	// Prune is set by --prune: everything --cleanup does, plus removing the
 	// managed network. It implies Cleanup. Like Cleanup it is a flag only.
 	Prune bool `json:"-"`
+	// PrintLogDir is set by --print-log-dir: print the log folder and exit.
+	// Like Cleanup it is a flag only, so a stray setting cannot turn every
+	// launch into a print.
+	PrintLogDir bool `json:"-"`
 }
 
 // Defaults returns the built-in configuration.
 func Defaults() Config {
 	return Config{
-		Listen:      "127.0.0.1:8770",
-		Runtime:     runtime.Auto,
-		Network:     component.NetworkBridge,
-		PublishAddr: "127.0.0.1",
-		RestartMax:  supervisor.DefaultRestartPolicy.MaxAttempts,
-		LogLevel:    "info",
+		Listen:       "127.0.0.1:8770",
+		Runtime:      runtime.Auto,
+		Network:      component.NetworkBridge,
+		PublishAddr:  "127.0.0.1",
+		RestartMax:   supervisor.DefaultRestartPolicy.MaxAttempts,
+		LogLevel:     "info",
+		LogKeep:      20,
+		LogMaxMB:     500,
+		LogFileMaxMB: 64,
 	}
 }
 
@@ -170,12 +190,18 @@ func LoadTo(w io.Writer, args []string, env func(string) string, readFile ReadFi
 	fs.IntVar(&f.RestartMax, "restart-max", def.RestartMax, "automatic restarts before giving up (at least 1)")
 	fs.BoolVar(&f.NoFail, "no-fail", def.NoFail, "never give up restarting after a failure, retry every 10 s until stopped")
 	fs.StringVar(&f.LogLevel, "log-level", def.LogLevel, "log level: debug, info, warn or error")
+	fs.StringVar(&f.LogDir, "log-dir", def.LogDir, "folder for session logs (default: the operating system's log location; see --print-log-dir)")
+	fs.IntVar(&f.LogKeep, "log-keep", def.LogKeep, "session log archives to keep (at least 1)")
+	fs.IntVar(&f.LogMaxMB, "log-max-mb", def.LogMaxMB, "total size of kept log archives in MB (at least 1)")
+	fs.IntVar(&f.LogFileMaxMB, "log-file-max-mb", def.LogFileMaxMB, "size limit of each live log file in MB (at least 4)")
+	fs.BoolVar(&f.Verbose, "verbose", def.Verbose, "also show every component's output on the terminal")
+	fs.BoolVar(&f.PrintLogDir, "print-log-dir", false, "print the log folder and exit")
 	fs.StringVar(&f.ConfigFile, "config", "", "JSON configuration file")
 	fs.BoolVar(&f.ShowVersion, "version", false, "print the version and exit")
 	fs.BoolVar(&f.Cleanup, "cleanup", false, "remove leftover AstroSim containers and exit (refused while AstroSim is running)")
 	fs.BoolVar(&f.Prune, "prune", false, "like --cleanup, and also remove the AstroSim network")
 	fs.Usage = func() {
-		fmt.Fprintf(w, "Usage: astrosim [flags]\n\nStarts the AstroSim dashboard. Every setting except the per-component\noverrides and the one-shot --cleanup, --prune and --version flags also has\nan environment variable, %s<NAME> (for example\n%sALLOW_REMOTE); flags win over the environment, which wins over --config.\n\nFlags:\n", EnvPrefix, EnvPrefix)
+		fmt.Fprintf(w, "Usage: astrosim [flags]\n\nStarts the AstroSim dashboard. Every setting except the per-component\noverrides and the one-shot --cleanup, --prune, --print-log-dir and --version flags also has\nan environment variable, %s<NAME> (for example\n%sALLOW_REMOTE); flags win over the environment, which wins over --config.\n\nFlags:\n", EnvPrefix, EnvPrefix)
 		fs.PrintDefaults()
 	}
 	if err := fs.Parse(args); err != nil {
@@ -244,6 +270,22 @@ func LoadTo(w io.Writer, args []string, env func(string) string, readFile ReadFi
 	if set["log-level"] {
 		cfg.LogLevel = f.LogLevel
 	}
+	if set["log-dir"] {
+		cfg.LogDir = f.LogDir
+	}
+	if set["log-keep"] {
+		cfg.LogKeep = f.LogKeep
+	}
+	if set["log-max-mb"] {
+		cfg.LogMaxMB = f.LogMaxMB
+	}
+	if set["log-file-max-mb"] {
+		cfg.LogFileMaxMB = f.LogFileMaxMB
+	}
+	if set["verbose"] {
+		cfg.Verbose = f.Verbose
+	}
+	cfg.PrintLogDir = f.PrintLogDir
 	cfg.ShowVersion = f.ShowVersion
 	cfg.Prune = f.Prune
 	// Pruning does everything cleaning up does, so callers only test Cleanup
@@ -271,29 +313,46 @@ func applyEnv(cfg *Config, env func(string) string) error {
 		*dst = b
 		return nil
 	}
+	integer := func(key string, dst *int) error {
+		v := env(EnvPrefix + key)
+		if v == "" {
+			return nil
+		}
+		n, err := strconv.Atoi(v)
+		if err != nil {
+			return fmt.Errorf("%s%s: %q is not a number", EnvPrefix, key, v)
+		}
+		*dst = n
+		return nil
+	}
 	str("LISTEN", &cfg.Listen)
 	str("RUNTIME", &cfg.Runtime)
 	str("RUNTIME_PATH", &cfg.RuntimePath)
 	str("NETWORK", &cfg.Network)
 	str("PUBLISH_ADDR", &cfg.PublishAddr)
 	str("LOG_LEVEL", &cfg.LogLevel)
+	str("LOG_DIR", &cfg.LogDir)
 	for _, b := range []struct {
 		key string
 		dst *bool
 	}{
 		{"ALLOW_REMOTE", &cfg.AllowRemote}, {"NO_BROWSER", &cfg.NoBrowser},
-		{"AUTOSTART", &cfg.Autostart}, {"NO_FAIL", &cfg.NoFail},
+		{"AUTOSTART", &cfg.Autostart}, {"NO_FAIL", &cfg.NoFail}, {"VERBOSE", &cfg.Verbose},
 	} {
 		if err := boolean(b.key, b.dst); err != nil {
 			return err
 		}
 	}
-	if v := env(EnvPrefix + "RESTART_MAX"); v != "" {
-		n, err := strconv.Atoi(v)
-		if err != nil {
-			return fmt.Errorf("%sRESTART_MAX: %q is not a number", EnvPrefix, v)
+	for _, n := range []struct {
+		key string
+		dst *int
+	}{
+		{"RESTART_MAX", &cfg.RestartMax}, {"LOG_KEEP", &cfg.LogKeep},
+		{"LOG_MAX_MB", &cfg.LogMaxMB}, {"LOG_FILE_MAX_MB", &cfg.LogFileMaxMB},
+	} {
+		if err := integer(n.key, n.dst); err != nil {
+			return err
 		}
-		cfg.RestartMax = n
 	}
 	return nil
 }
@@ -321,6 +380,15 @@ func (c Config) Validate(goos string, defs []component.Definition) error {
 	}
 	if c.RestartMax < 1 {
 		bad("--restart-max must be at least 1, got %d", c.RestartMax)
+	}
+	if c.LogKeep < 1 {
+		bad("--log-keep must be at least 1, got %d", c.LogKeep)
+	}
+	if c.LogMaxMB < 1 {
+		bad("--log-max-mb must be at least 1, got %d", c.LogMaxMB)
+	}
+	if c.LogFileMaxMB < 4 {
+		bad("--log-file-max-mb must be at least 4, got %d", c.LogFileMaxMB)
 	}
 	if _, err := logging.ParseLevel(c.LogLevel); err != nil {
 		bad("--log-level: %v", err)

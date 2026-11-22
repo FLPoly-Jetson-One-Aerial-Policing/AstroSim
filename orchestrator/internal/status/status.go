@@ -18,6 +18,7 @@
 //	  "attempt": 1, "maxAttempts": 3, // restart budget use
 //	  "canStart": false, "canStop": true,
 //	  "runtime": {"name": "podman", "version": "5.0.1", "network": "bridge"},
+//	  "logDir": "/home/u/.local/state/astrosim/logs/20260102T030405Z-0123456789abcdef", // "" when file logging is off
 //	  "components": [{
 //	    "id": "engine", "name": "Simulation engine", "description": "...",
 //	    "image": "astrosim-engine",
@@ -118,6 +119,9 @@ type Snapshot struct {
 	CanStop bool `json:"canStop"`
 	// Runtime describes the container runtime.
 	Runtime Runtime `json:"runtime"`
+	// LogDir is the folder holding this session's logs; "" when file
+	// logging is off.
+	LogDir string `json:"logDir"`
 	// Components lists every component in launch order.
 	Components []Component `json:"components"`
 }

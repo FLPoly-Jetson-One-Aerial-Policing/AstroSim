@@ -17,12 +17,18 @@
 #   8. a running orchestrator refuses --cleanup and keeps its session,
 #   9. "kill -9" leaves the containers running (expected), --cleanup then
 #      removes them, and a fresh start reaches running,
-#  10. --prune removes the labelled network, and the next start recreates it.
+#  10. --prune removes the labelled network, and the next start recreates it,
+#  11. the session logs: a download during a run is a zip, the SIGINT in step 4
+#      leaves exactly one new zip and no session folder, its combined.log has
+#      engine, fc and orchestrator lines and fc.log a launch marker, and after
+#      "kill -9" the folder remains and the next start archives it.
 #
 # Environment:
 #   CONTAINER_RUNTIME       podman (default) or docker
 #   ASTROSIM_ORCH_LISTEN    dashboard address (default 127.0.0.1:8770)
 #   ASTROSIM_BIN            orchestrator binary (default build/orchestrator/astrosim)
+#
+# The test keeps its logs in a temporary ASTROSIM_ORCH_LOG_DIR of its own.
 #
 # The status JSON is inspected with grep and sed only, so the script needs
 # nothing beyond bash and curl. That works because the snapshot is compact
@@ -36,6 +42,8 @@ root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 bin="${ASTROSIM_BIN:-$root/build/orchestrator/astrosim}"
 base="http://$listen"
 log="$(mktemp "${TMPDIR:-/tmp}/astrosim-smoke.XXXXXX")"
+logroot="$(mktemp -d "${TMPDIR:-/tmp}/astrosim-smoke-logs.XXXXXX")"
+export ASTROSIM_ORCH_LOG_DIR="$logroot"
 pid=""
 spid=""
 failures=0
@@ -64,6 +72,7 @@ cleanup() {
         # shellcheck disable=SC2086
         "$runtime" rm -f $left >/dev/null 2>&1 || true
     fi
+    rm -rf "$logroot"
     if [ "$failures" -ne 0 ] || [ "$rc" -ne 0 ]; then
         echo "--- orchestrator log ($log) ---"
         tail -n 40 "$log" || true
@@ -72,6 +81,28 @@ cleanup() {
     fi
 }
 trap cleanup EXIT
+
+# zips lists the session log archives; folders lists the session folders.
+zips() { find "$logroot" -maxdepth 1 -name '*.zip' | sort; }
+folders() { find "$logroot" -maxdepth 1 -mindepth 1 -type d | sort; }
+
+# zip_member ZIP NAME prints one file of an archive; it fails when no unzip
+# tool is available (status 3), so the caller can skip the check.
+zip_member() {
+    if command -v unzip >/dev/null 2>&1; then
+        unzip -p "$1" "*/$2"
+    elif command -v python3 >/dev/null 2>&1; then
+        python3 -I - "$1" "$2" <<'PY'
+import sys, zipfile
+z = zipfile.ZipFile(sys.argv[1])
+for n in z.namelist():
+    if n.endswith("/" + sys.argv[2]):
+        sys.stdout.buffer.write(z.read(n))
+PY
+    else
+        return 3
+    fi
+}
 
 # networks lists the names of the networks labelled as managed by AstroSim.
 networks() {
@@ -157,6 +188,13 @@ else
     exit 1
 fi
 
+# 1b. A download during the run is a zip.
+if [ "$(curl -fsS --max-time 20 "$base/api/v1/logs/download" 2>/dev/null | head -c 2)" = PK ]; then
+    pass "logs: a download during the run is a zip"
+else
+    fail "logs: the download during the run is not a zip"
+fi
+
 # 2. Kill the engine; the whole sim group must come back.
 old_id="$("$runtime" inspect --format '{{.Id}}' astrosim-engine)"
 "$runtime" kill astrosim-engine >/dev/null
@@ -199,11 +237,39 @@ signal_check() {
 # 4. Start again through the API (the orchestrator from step 1 is still up),
 # then SIGINT.
 if post start && wait_running 180; then
+    zips_before="$(zips | wc -l)"
     kill -INT "$pid"
     if wait_exit 20 && wait_no_managed 30; then
         pass "SIGINT: orchestrator exited and no managed containers remain"
     else
         fail "SIGINT: containers: $(managed | tr '\n' ' ')"
+    fi
+    # 11a. The session's logs were archived: one new zip, no folder.
+    zips_after="$(zips | wc -l)"
+    if [ "$((zips_after - zips_before))" -eq 1 ] && [ -z "$(folders)" ]; then
+        pass "logs: SIGINT left one new zip and no session folder"
+    else
+        fail "logs: expected one new zip and no folder; zips $zips_before -> $zips_after, folders: $(folders | tr '\n' ' ')"
+    fi
+    newest="$(zips | tail -n 1)"
+    if combined="$(zip_member "$newest" combined.log)"; then
+        missing=""
+        for src in engine fc orchestrator; do
+            grep -Eq "^[0-9-]+ [0-9:.]+ $src +\| " <<<"$combined" || missing="$missing $src"
+        done
+        if [ -z "$missing" ]; then
+            pass "logs: combined.log has engine, fc and orchestrator lines"
+        else
+            fail "logs: combined.log has no lines from:$missing"
+        fi
+        fclog="$(zip_member "$newest" fc.log)"
+        if grep -q '| ==== launch gen=' <<<"$fclog"; then
+            pass "logs: fc.log has a launch marker"
+        else
+            fail "logs: fc.log has no launch marker"
+        fi
+    else
+        echo "SKIP: reading the log archive (needs unzip or python3)"
     fi
 else
     fail "restart after stop: not running (phase=$(phase))"
@@ -248,6 +314,8 @@ if wait_running 180; then
     fi
     kill -KILL "$pid"
     wait "$pid" 2>/dev/null || true
+    killed_folders="$(folders | wc -l)"
+    killed_zips="$(zips | wc -l)"
     running="$("$runtime" ps --filter label=astrosim.managed=true --format '{{.Names}}' | wc -l)"
     if [ "$running" -ge 2 ]; then
         pass "kill -9: containers keep running (expected: abnormal exit)"
@@ -259,11 +327,31 @@ if wait_running 180; then
     else
         fail "--cleanup: containers remain: $(managed | tr '\n' ' ')"
     fi
+    if [ "$killed_folders" -eq 1 ]; then
+        pass "logs: kill -9 left the session folder"
+    else
+        fail "logs: expected one folder after kill -9, found $killed_folders"
+    fi
     start_orchestrator --autostart
     if wait_running 180; then
         pass "restart after kill -9: running"
     else
         fail "restart after kill -9: not running (phase=$(phase))"
+    fi
+    # Recovery runs in the background, so give it a moment. The folder left by
+    # the hard kill must now be a zip; the current session's folder remains.
+    recovered=""
+    for _ in $(seq 1 25); do
+        if [ "$(zips | wc -l)" -gt "$killed_zips" ] && [ "$(folders | wc -l)" -eq 1 ]; then
+            recovered=1
+            break
+        fi
+        sleep 0.2
+    done
+    if [ -n "$recovered" ]; then
+        pass "logs: the next start archived the folder left by kill -9"
+    else
+        fail "logs: the leftover folder was not archived (zips $killed_zips -> $(zips | wc -l), folders: $(folders | tr '\n' ' '))"
     fi
     kill -INT "$pid"
     wait_exit 20 || true

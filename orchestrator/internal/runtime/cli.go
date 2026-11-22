@@ -5,9 +5,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -18,6 +20,9 @@ type Dialect struct {
 	Name string
 	// ImageExistsArgs returns the command that tests for a local image.
 	ImageExistsArgs func(image string) []string
+	// RunLogArgs are extra `run` arguments that select the container log
+	// driver, or nil for the engine's default.
+	RunLogArgs []string
 	// ImageMissing decides, from a failed ImageExistsArgs command, whether
 	// the image is simply absent (true) or the engine misbehaved (false).
 	ImageMissing func(res Result) bool
@@ -25,8 +30,13 @@ type Dialect struct {
 
 // Podman is the podman dialect. `podman image exists` exits 1 for a missing
 // image and 125 for engine errors.
+//
+// Containers use the k8s-file log driver: podman's default depends on the
+// host (journald on many Linux distributions), and journald is slower and
+// has had `logs --follow` bugs, whereas k8s-file behaves the same everywhere.
 var Podman = Dialect{
 	Name:            "podman",
+	RunLogArgs:      []string{"--log-driver", "k8s-file"},
 	ImageExistsArgs: func(image string) []string { return []string{"image", "exists", image} },
 	ImageMissing:    func(res Result) bool { return res.ExitCode == 1 },
 }
@@ -185,6 +195,7 @@ func (c *CLI) RemoveNetwork(ctx context.Context, name string) error {
 // container shares the host's network stack.
 func (c *CLI) RunArgs(spec RunSpec) []string {
 	args := []string{"run", "-d", "--name", spec.Name}
+	args = append(args, c.dialect.RunLogArgs...)
 	host := spec.Network == HostNetwork
 	if spec.Network != "" {
 		args = append(args, "--network", spec.Network)
@@ -367,4 +378,66 @@ func (c *CLI) Logs(ctx context.Context, name string, tail int) (string, error) {
 		return "", err
 	}
 	return res.Stdout + res.Stderr, nil
+}
+
+// maxErrText is how much of the command's stderr FollowLogs keeps to explain
+// a failure.
+const maxErrText = 4 << 10
+
+// tailWriter forwards writes to w and remembers the last maxErrText bytes.
+type tailWriter struct {
+	mu  sync.Mutex
+	w   io.Writer
+	buf []byte
+}
+
+func (t *tailWriter) Write(p []byte) (int, error) {
+	t.mu.Lock()
+	t.buf = append(t.buf, p...)
+	if over := len(t.buf) - maxErrText; over > 0 {
+		t.buf = append(t.buf[:0], t.buf[over:]...)
+	}
+	t.mu.Unlock()
+	return t.w.Write(p)
+}
+
+func (t *tailWriter) text() string {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return strings.TrimSpace(string(t.buf))
+}
+
+// FollowLogs implements Runtime. Both podman and docker accept
+// `logs --timestamps [--follow] [--since T] name` and send the container's
+// stderr to the command's stderr. Verified against podman 5.8: the follow
+// ends by itself when the container exits, --since is exclusive and takes a
+// UTC RFC 3339 timestamp with nanoseconds, and each line starts with a
+// timestamp in the host's local offset (docker uses UTC); all parse as
+// RFC 3339.
+func (c *CLI) FollowLogs(ctx context.Context, name string, opts LogOptions, stdout, stderr io.Writer) error {
+	s, ok := c.cmd.(Streamer)
+	if !ok {
+		return fmt.Errorf("runtime: %T cannot stream command output", c.cmd)
+	}
+	args := []string{"logs", "--timestamps"}
+	if opts.Follow {
+		args = append(args, "--follow")
+	}
+	if !opts.Since.IsZero() {
+		args = append(args, "--since", opts.Since.UTC().Format(time.RFC3339Nano))
+	}
+	args = append(args, name)
+	tw := &tailWriter{w: stderr}
+	code, err := s.Stream(ctx, stdout, tw, c.bin, args...)
+	if err != nil {
+		return err
+	}
+	if code == 0 {
+		return nil
+	}
+	ce := &CommandError{Args: args, ExitCode: code, Stderr: tw.text()}
+	if isNotFoundText(ce.Stderr) {
+		return fmt.Errorf("%w: %w", ErrNotFound, ce)
+	}
+	return ce
 }

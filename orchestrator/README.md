@@ -46,14 +46,20 @@ Settings come from four layers; a later one overrides an earlier one: built-in d
 | `--restart-max` | `ASTROSIM_ORCH_RESTART_MAX` | `restartMax` | 3 | Automatic restarts before giving up (at least 1) |
 | `--no-fail` | `ASTROSIM_ORCH_NO_FAIL` | `noFail` | false | Never give up restarting (see [Restart policy](#restart-policy)) |
 | `--log-level` | `ASTROSIM_ORCH_LOG_LEVEL` | `logLevel` | `info` | `debug`, `info`, `warn` or `error` |
+| `--log-dir` | `ASTROSIM_ORCH_LOG_DIR` | `logDir` | OS default, see [Logs](#logs) | Folder the session logs are kept in |
+| `--log-keep` | `ASTROSIM_ORCH_LOG_KEEP` | `logKeep` | 20 | Log archives to keep (at least 1) |
+| `--log-max-mb` | `ASTROSIM_ORCH_LOG_MAX_MB` | `logMaxMB` | 500 | Total size of the kept archives, in MB (at least 1) |
+| `--log-file-max-mb` | `ASTROSIM_ORCH_LOG_FILE_MAX_MB` | `logFileMaxMB` | 64 | Size cap of each live log file, in MB (at least 4) |
+| `--verbose` | `ASTROSIM_ORCH_VERBOSE` | `verbose` | false | Also show every component's output on the terminal |
 | `--config` | `ASTROSIM_ORCH_CONFIG` | n/a | none | JSON configuration file |
 | `--version` | n/a | n/a | n/a | Print the version and exit |
 | `--cleanup` | n/a | n/a | false | Remove leftover AstroSim containers and exit (see [Shutting down](#shutting-down)) |
-| `--prune` | n/a | n/a | false | Like `--cleanup`, and also remove the AstroSim network |
+| `--prune` | n/a | n/a | false | Like `--cleanup`, and also remove the AstroSim network and archive stray log folders |
+| `--print-log-dir` | n/a | n/a | false | Print the log folder and exit (see [Logs](#logs)) |
 
 Booleans in environment variables use Go's syntax (`1`, `true`, `0`, `false`). Unknown JSON keys are an error.
 
-`--cleanup`, `--prune` and `--version` are one-shot commands and exist only as flags, with no environment variable or
+`--cleanup`, `--prune`, `--print-log-dir` and `--version` are one-shot commands and exist only as flags, with no environment variable or
 JSON key: a setting left in the environment or a file would turn every launch into a cleanup. `--cleanup` and `--prune`
 cannot be combined with `--autostart`, whether that comes from the flag, the environment or the file.
 
@@ -95,12 +101,15 @@ forwards the stop signal to its processes and waits for them, so nothing is left
 | How it ends | What happens |
 |-|-|
 | **Stop** button | Stops and removes the containers; the orchestrator keeps running |
-| `Ctrl+C` (SIGINT) | Stops and removes the containers, then exits |
+| `Ctrl+C` (SIGINT) | Stops and removes the containers, saves the logs as a zip (see [Logs](#logs)), then exits |
 | `kill` (SIGTERM) | Same as `Ctrl+C` |
 | Terminal closed (SIGHUP, Linux and macOS) | Same as `Ctrl+C`. Logging to the closed terminal is ignored, so it cannot get in the way |
 | Windows console closed, logoff or shutdown | Go reports these as SIGTERM, so it is handled like `kill`. Not yet verified on Windows hardware |
-| Second `Ctrl+C` while stopping | Exits at once (status 130). Containers may be left running |
-| Crash, `kill -9`, power loss | **Abnormal.** Nothing can run a teardown, so the containers keep running until you run `astrosim --cleanup` or start `astrosim` again, which removes them first |
+| Second `Ctrl+C` while stopping | Exits at once (status 130). Containers may be left running, and the logs stay as a folder until the next start archives them |
+| Crash, `kill -9`, power loss | **Abnormal.** Nothing can run a teardown, so the containers keep running until you run `astrosim --cleanup` or start `astrosim` again, which removes them first. The log folder stays too, and the next start archives it |
+
+On a normal quit the order is: stop the containers (their last output is collected first), stop the dashboard, close and
+zip the logs, release the lock. The last step prints `logs saved to <file>`.
 
 Leftovers can therefore never conflict with the next start: every launch removes all containers labelled
 `astrosim.managed=true` while holding the [instance lock](#single-instance-and-lock-file).
@@ -111,6 +120,9 @@ Leftovers can therefore never conflict with the next start: every launch removes
 It prints one line per removed container, or `nothing to clean up`, and exits 0 (1 on failure). Use it after a crash
 if you do not want to start AstroSim again.
 
+Neither touches the logs, except that `--prune` archives any session log folder left behind by a crash (see
+[Logs](#logs)); it never deletes a log or an archive.
+
 The `astrosim` network is deliberately kept after a run and reused by the next one. `astrosim --prune` does what
 `--cleanup` does and then removes the networks labelled `astrosim.managed=true`; the next start creates it again.
 
@@ -119,6 +131,76 @@ before cleaning up` and exit 1, leaving the session untouched. They only touch r
 never removed, and need removing by hand if you want them gone: containers you started yourself (`engine`, `fc`), the
 top-level README's `astrosim` pod, and an `astrosim` network created before networks were labelled
 (`podman network rm astrosim`).
+
+## Logs
+
+The orchestrator collects **technical debugging logs** from itself and from every component into one folder per
+session, so a problem can be diagnosed after the containers are gone. They are not flight records or telemetry.
+
+**Where.** `astrosim --print-log-dir` prints the log folder and exits, which is handy in scripts:
+`cd "$(astrosim --print-log-dir)"`. It creates nothing and does not need AstroSim to be running. Unless `--log-dir`
+(or its environment variable or JSON key) says otherwise it is:
+
+| OS | Default location |
+|-|-|
+| Linux | `$XDG_STATE_HOME/astrosim/logs`, normally `~/.local/state/astrosim/logs` |
+| macOS | `~/Library/Logs/AstroSim` |
+| Windows | `%LOCALAPPDATA%\AstroSim\logs` |
+
+Folders are created readable by you only. If the logs cannot be opened, AstroSim warns and runs without them, and the
+dashboard hides its Logs card.
+
+**Layout.** Each session gets a folder named `<YYYYMMDDTHHMMSSZ>-<session id>`, with the start time in UTC:
+
+```
+20261122T193834Z-a3035da121a9521c/
+  combined.log       every line from every source, in the order received
+  orchestrator.log   AstroSim's own log
+  engine.log         the physics engine container's output
+  fc.log             the flight computer container's output
+```
+
+Every file starts with a header line (version, session, time zone). Times are local to the machine. Lines look like
+this:
+
+```
+combined.log:
+2026-11-22 14:41:23.014 orchestrator | 2026-11-22 14:41:23 INFO autostart: starting the simulation
+2026-11-22 14:41:23.549 fc           | ==== launch gen=1 container=astrosim-fc id=ec312bfd6a91 image=astrosim-fc ====
+2026-11-22 14:41:23.589 fc           | 2026-11-22 19:41:23.564 INFO  astrosim fc bridge 0.1.0 starting
+
+fc.log:
+2026-11-22 14:41:23.589 | 2026-11-22 19:41:23.564 INFO  astrosim fc bridge 0.1.0 starting
+```
+
+`combined.log` has a source column (padded to 12 characters); the per-source files have only the time. The time is
+when AstroSim received the line, not when the container wrote it. Lines are cleaned: colour codes and control
+characters are removed, bad UTF-8 is replaced, and a line over 16 KiB is cut with a notice.
+
+**Markers.** Lines starting `====` are written by AstroSim, in the component's file and in `combined.log`: `launch
+gen=N` (each container start, so a restart shows as a new generation), `exited code=N`, `launch failed: ...`,
+`capture ended: ...` (the container's log could not be read to the end), `reconnected (since ...)`, and `part N removed
+(log size limit)`. Search for `====` to see the timeline.
+
+**Terminal.** Normally the terminal shows only AstroSim's own lines. `--verbose` also shows every component line, the
+same as `combined.log`. The terminal never slows the simulation: if it cannot keep up, lines are skipped there (and
+counted in a notice), but they are always in `combined.log`.
+
+**Size.** Each live file is capped by `--log-file-max-mb` (default 64). A file that grows past the cap keeps its first
+part, so you can see how the run began, and its newest parts, so you can see how it ended. The middle is removed and a
+marker says so.
+
+**Archiving and retention.** When AstroSim quits it zips the session folder to `<folder name>.zip` in the same
+place, deletes the folder, and prints `logs saved to <file>`. If AstroSim was killed hard, the folder is left; the next
+start (or `--prune`) archives it, so nothing is lost. Afterwards old archives are deleted, oldest first, to keep at
+most `--log-keep` archives (default 20) and `--log-max-mb` MB in total (default 500). The newest archive is never
+deleted by retention. Only names of this form are ever touched, so other files in the folder are safe.
+
+**Download.** The dashboard has a Logs card with the folder, a Copy button and a Download button. It fetches
+`GET /api/v1/logs/download`, a zip of the current session's logs so far, from the [HTTP API](#http-api). The failed
+panel suggests attaching it to a problem report.
+
+`--cleanup` does not touch logs. `--prune` archives stray session folders but never deletes anything.
 
 ## Network modes
 
@@ -178,6 +260,7 @@ The dashboard is a plain-JavaScript page embedded in the program. It uses this A
 | `GET /api/v1/status` | The current snapshot (JSON, below) |
 | `POST /api/v1/start` | `202` with the snapshot, or `409 {"error":"not_allowed","phase":...}` |
 | `POST /api/v1/stop` | The same |
+| `GET /api/v1/logs/download` | A zip (`astrosim-logs-<session>.zip`) of the current session's logs, `503 {"error":"logs_unavailable"}` when logging is off, or `429 {"error":"busy"}` while another download runs |
 | `GET /api/v1/events` | Server-sent events: a `status` event with a snapshot on connect and on each change (at most every 250 ms), and a ping every 15 s |
 
 ```sh
@@ -197,6 +280,7 @@ The snapshot (all keys camelCase; lists are `[]`, never `null`):
   "maxAttempts": 3,
   "canStart": false,
   "canStop": true,
+  "logDir": "/home/you/.local/state/astrosim/logs/20261122T193834Z-a3035da121a9521c",
   "runtime": { "name": "podman", "version": "5.8.9", "network": "bridge" },
   "components": [
     {
@@ -224,6 +308,7 @@ The snapshot (all keys camelCase; lists are `[]`, never `null`):
   `failed`. `facts` are live details from the component's health check; `lastLog` is the container's log tail,
   captured when it fails. `installed` is false when the image is missing, and `buildCommand` says how to build it.
 - `maxAttempts` is 0 with `--no-fail` (unlimited).
+- `logDir` is the current session's log folder, or `""` when logging is off (see [Logs](#logs)).
 
 ## Security notes
 
@@ -258,7 +343,9 @@ the managed containers or port 8770). It starts the orchestrator, waits for `run
 recovery, stops via the API, restarts, and checks after SIGINT, SIGTERM, SIGHUP and a closed pseudo-terminal that no
 managed containers remain. It then checks that `--cleanup` is refused while running, that `kill -9` leaves the
 containers behind, that `--cleanup` removes them, and that `--prune` removes the network, which the next start
-recreates. It honours `CONTAINER_RUNTIME` and `ASTROSIM_ORCH_LISTEN`, uses only bash and curl (the pseudo-terminal
+recreates. It also checks the logs: a download during a run is a zip, a SIGINT leaves one new zip (with engine, fc
+and orchestrator lines) and no folder, and the next start after `kill -9` archives the leftover folder. It keeps its
+logs in a temporary `ASTROSIM_ORCH_LOG_DIR`. It honours `CONTAINER_RUNTIME` and `ASTROSIM_ORCH_LISTEN`, uses only bash and curl (the pseudo-terminal
 check also needs util-linux `script` and is skipped without it), and exits non-zero on any failure. It takes about
 45 s.
 
@@ -280,6 +367,7 @@ internal/config/         defaults, JSON file, environment and flags
 internal/instance/       single-instance lock
 internal/browser/        opening the dashboard in a browser
 internal/logging/        log format shared with the containers
+internal/logs/           session log folder: writer, capture, zip archive, recovery, retention
 scripts/smoke.sh         end-to-end test
 ```
 
@@ -318,6 +406,16 @@ add one, touch only these files:
 - **Probes use subscriber slots.** The engine and the flight computer each accept 8 subscribers. The orchestrator's
   health check holds one slot on each while running, and so does each `astrosim-probe` or `astrosim-fc-probe` run for
   a few seconds (a slot is dropped after 5 s of silence). Leave room if you run many displays.
+- **Log streaming on Docker is untested live.** Capturing container logs (`logs --follow --timestamps`) was run
+  against Podman only; the Docker timestamp format (UTC, nanoseconds) is handled but not verified.
+- **Podman containers use the `k8s-file` log driver**, passed at `run`, because Podman's default (often journald)
+  has had `logs --follow` bugs. Docker keeps its default driver; with the `none` driver there is nothing to capture
+  and a `capture ended` marker says so.
+- **Log timestamps are the time AstroSim received the line**, so lines from different components can appear out of
+  order by a few milliseconds in `combined.log`.
+- **Archiving is best-effort on Windows.** Open files cannot always be deleted there, and the console-close budget
+  (about 5 s) may end the process before the zip is finished. The folder is kept and the next start recovers it.
+- **A second `Ctrl+C` skips archiving.** The logs stay as a folder until the next start archives them.
 - **Stale details after a recovery.** While a component is being stopped, its last exit code and log tail from the
   previous failure can still be shown, and the `attempt` counter stays at its last value after a Stop until the next
   Start.
