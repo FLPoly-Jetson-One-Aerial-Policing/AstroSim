@@ -3,7 +3,8 @@
 //
 // It checks for a container runtime and the component images, serves the
 // dashboard on localhost (opening it in the browser), and on Start launches
-// and supervises the containers. Ctrl+C stops the containers and exits.
+// and supervises the containers. Ctrl+C, SIGTERM or closing the terminal
+// stops the containers and exits.
 // Run "astrosim --help" for the flags.
 package main
 
@@ -21,7 +22,6 @@ import (
 	"os"
 	"os/signal"
 	"strings"
-	"syscall"
 	"time"
 
 	"github.com/FLPoly-Jetson-One-Aerial-Policing/AstroSim/orchestrator/internal/api"
@@ -74,6 +74,9 @@ func run(args []string, getenv func(string) string, stdout, stderr io.Writer) in
 		fmt.Fprintf(stderr, "astrosim: invalid configuration:\n%s\nRun \"astrosim --help\" for usage.\n", indent(err.Error()))
 		return exitUsage
 	}
+	// If the terminal goes away, logging must not kill the process before
+	// the shutdown signal handler has stopped the containers.
+	defer survivePipeBreak()()
 	level, _ := logging.ParseLevel(cfg.LogLevel) // validated above
 	log := logging.New(stderr, level)
 
@@ -155,10 +158,10 @@ func run(args []string, getenv func(string) string, stdout, stderr io.Writer) in
 	runErr := make(chan error, 1)
 	go func() { runErr <- sess.Run(context.Background()) }()
 
-	// Signals: the first stops the containers and exits; a second one
+	// Signals (including SIGHUP when the terminal closes): the first stops the containers and exits; a second one
 	// gives up waiting.
 	sigs := make(chan os.Signal, 2)
-	signal.Notify(sigs, os.Interrupt, syscall.SIGTERM)
+	signal.Notify(sigs, quitSignals()...)
 	defer signal.Stop(sigs)
 	go func() {
 		<-sigs

@@ -31,7 +31,8 @@ func ParseLevel(s string) (slog.Level, error) {
 	return 0, fmt.Errorf("unknown log level %q (want debug, info, warn or error)", s)
 }
 
-// Handler is an slog.Handler that writes one line per record:
+// Handler is an slog.Handler that writes one line per record and ignores
+// write errors:
 //
 //	2026-01-02 03:04:05 INFO message key=value key2="value with spaces"
 //
@@ -79,8 +80,12 @@ func (h *Handler) Handle(_ context.Context, r slog.Record) error {
 	b.WriteByte('\n')
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	_, err := h.w.Write(b.Bytes())
-	return err
+	// A failed write (a closed terminal gives EIO or EPIPE) is deliberately
+	// not reported: slog discards Handle errors anyway, and logging must
+	// never disturb shutdown. Write on a closed pty returns at once, so it
+	// cannot block either.
+	_, _ = h.w.Write(b.Bytes())
+	return nil
 }
 
 // WithAttrs implements slog.Handler.
