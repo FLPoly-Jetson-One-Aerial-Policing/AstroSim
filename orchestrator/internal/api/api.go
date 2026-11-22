@@ -7,6 +7,9 @@
 //	POST /api/v1/start   202 with the snapshot, or 409 {"error":"not_allowed","phase":...}
 //	POST /api/v1/stop    same
 //	GET  /api/v1/events  server-sent events; event "status" carries a Snapshot
+//	GET  /api/v1/logs/download  a zip of the session's logs so far, or 503
+//	     {"error":"logs_unavailable"} when file logging is off, or 429
+//	     {"error":"busy"} while another download is running
 //	GET  /               the dashboard
 //
 // Every request must carry a Host header from the allow list (a defence
@@ -16,9 +19,11 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"log/slog"
 	"net/http"
@@ -26,6 +31,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/FLPoly-Jetson-One-Aerial-Policing/AstroSim/orchestrator/internal/logs"
 	"github.com/FLPoly-Jetson-One-Aerial-Policing/AstroSim/orchestrator/internal/session"
 	"github.com/FLPoly-Jetson-One-Aerial-Policing/AstroSim/orchestrator/internal/status"
 	"github.com/FLPoly-Jetson-One-Aerial-Policing/AstroSim/orchestrator/internal/web"
@@ -50,6 +56,16 @@ type Controller interface {
 	Snapshot() status.Snapshot
 }
 
+// LogArchive is the session log the API can hand out as a download. The
+// logs package's Recorder satisfies it, including a nil one.
+type LogArchive interface {
+	// Name is the session folder name; "" means logging is unavailable.
+	Name() string
+	// WriteZip writes a zip of the log files to w. It returns logs.ErrBusy,
+	// writing nothing, while another download is running.
+	WriteZip(ctx context.Context, w io.Writer) error
+}
+
 // Options configures NewHandler.
 type Options struct {
 	// Session is the stack controller. Required.
@@ -59,6 +75,8 @@ type Options struct {
 	// AllowedHosts lists the accepted Host header values, such as
 	// "127.0.0.1:8770" and "localhost:8770".
 	AllowedHosts []string
+	// Logs serves the log download; nil means logging is unavailable.
+	Logs LogArchive
 	// Logger receives log lines; nil uses slog.Default.
 	Logger *slog.Logger
 }
@@ -83,6 +101,7 @@ func NewHandler(opts Options) http.Handler {
 	mux.HandleFunc("POST /api/v1/start", h.command(opts.Session.Start))
 	mux.HandleFunc("POST /api/v1/stop", h.command(opts.Session.Stop))
 	mux.HandleFunc("GET /api/v1/events", h.events)
+	mux.HandleFunc("GET /api/v1/logs/download", h.logsDownload)
 	static, err := fs.Sub(web.Static, "static")
 	if err != nil {
 		panic(err) // the embed is a compile-time constant
@@ -136,6 +155,55 @@ func writeJSON(w http.ResponseWriter, code int, v any) {
 
 func (h *handler) status(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, http.StatusOK, h.opts.Session.Snapshot())
+}
+
+// startWriter delays the response headers until the first byte, so a
+// download that fails before producing anything can still answer with an
+// error status.
+type startWriter struct {
+	w       http.ResponseWriter
+	start   func()
+	started bool
+}
+
+func (s *startWriter) Write(p []byte) (int, error) {
+	if !s.started {
+		s.started = true
+		s.start()
+	}
+	return s.w.Write(p)
+}
+
+// logsDownload streams the live session's logs as a zip.
+func (h *handler) logsDownload(w http.ResponseWriter, r *http.Request) {
+	la := h.opts.Logs
+	if la == nil || la.Name() == "" {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "logs_unavailable"})
+		return
+	}
+	sw := &startWriter{w: w, start: func() {
+		hd := w.Header()
+		hd.Set("Content-Type", "application/zip")
+		hd.Set("Content-Disposition", fmt.Sprintf("attachment; filename=%q", "astrosim-logs-"+la.Name()+".zip"))
+		w.WriteHeader(http.StatusOK)
+	}}
+	err := la.WriteZip(r.Context(), sw)
+	switch {
+	case err == nil:
+		if !sw.started { // cannot happen for a real zip, but never send an empty 200
+			sw.Write(nil)
+		}
+	case !sw.started && errors.Is(err, logs.ErrBusy):
+		writeJSON(w, http.StatusTooManyRequests, map[string]string{"error": "busy"})
+	case !sw.started:
+		h.log.Error("log download failed", "err", err)
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "logs_failed"})
+	default:
+		// The status is already sent. Abort the connection so the client
+		// sees a truncated download rather than a zip that looks complete.
+		h.log.Error("log download failed part way", "err", err)
+		panic(http.ErrAbortHandler)
+	}
 }
 
 // command returns a handler for a start or stop request.
