@@ -55,6 +55,8 @@ More options and how it works: [orchestrator/README.md](orchestrator/README.md).
 
 The orchestrator does this for you. The commands below start the parts yourself, which is useful when working on one of them. Stop the orchestrator first: it uses the same ports. After a crash of the orchestrator, `astrosim --cleanup` removes the containers it left running (`astrosim --prune` also removes its network); see [Shutting down](orchestrator/README.md#shutting-down).
 
+The orchestrator also saves the output of every part in one log folder per run, zipped when it quits. `astrosim --print-log-dir` shows where (`cd "$(astrosim --print-log-dir)"`), `--verbose` mirrors it to the terminal, and the dashboard has a download button; see [Logs](orchestrator/README.md#logs).
+
 ### Trying the physics engine
 
 Once a developer has built it, run this in a terminal:
