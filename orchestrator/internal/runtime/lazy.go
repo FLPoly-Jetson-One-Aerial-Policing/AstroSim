@@ -2,6 +2,7 @@ package runtime
 
 import (
 	"context"
+	"io"
 	"strings"
 	"sync"
 	"time"
@@ -165,4 +166,13 @@ func (l *Lazy) Logs(ctx context.Context, name string, tail int) (string, error) 
 		return "", err
 	}
 	return rt.Logs(ctx, name, tail)
+}
+
+// FollowLogs implements Runtime.
+func (l *Lazy) FollowLogs(ctx context.Context, name string, opts LogOptions, stdout, stderr io.Writer) error {
+	rt, err := l.inner()
+	if rt == nil {
+		return err
+	}
+	return rt.FollowLogs(ctx, name, opts, stdout, stderr)
 }

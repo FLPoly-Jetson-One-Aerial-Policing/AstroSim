@@ -9,8 +9,10 @@ package fake
 import (
 	"context"
 	"fmt"
+	"io"
 	"maps"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -26,13 +28,62 @@ const (
 	KillExitCode = 137
 )
 
+// Output streams for WriteLog.
+const (
+	// Stdout selects the container's standard output.
+	Stdout = "stdout"
+	// Stderr selects the container's standard error.
+	Stderr = "stderr"
+)
+
+// chunk is one piece of container output. bol records whether the chunk
+// starts at the beginning of a line, which is where the runtime would put
+// its timestamp.
+type chunk struct {
+	t      time.Time
+	stream string
+	data   string
+	bol    bool
+}
+
+// stamped renders the chunk as `logs --timestamps` would: the RFC 3339
+// timestamp is prefixed at the start of every line the chunk begins.
+func (c chunk) stamped() string {
+	ts := c.t.Format(time.RFC3339Nano) + " "
+	var b strings.Builder
+	atStart := c.bol
+	rest := c.data
+	for rest != "" {
+		if atStart {
+			b.WriteString(ts)
+		}
+		i := strings.IndexByte(rest, '\n')
+		if i < 0 {
+			b.WriteString(rest)
+			break
+		}
+		b.WriteString(rest[:i+1])
+		rest = rest[i+1:]
+		atStart = true
+	}
+	return b.String()
+}
+
 // container is one fake container.
 type container struct {
 	spec     runtime.RunSpec
 	id       string
 	state    runtime.ContainerState
-	logs     string
-	finished chan struct{} // closed when the container has exited
+	logs     []chunk
+	midLine  map[string]bool // per stream: the last chunk did not end in a newline
+	notify   chan struct{}   // closed and replaced whenever logs change or the container exits
+	finished chan struct{}   // closed when the container has exited
+}
+
+// wake releases every follower waiting for a change.
+func (c *container) wake() {
+	close(c.notify)
+	c.notify = make(chan struct{})
 }
 
 // Runtime is an in-memory runtime.Runtime. The zero value is not usable; call New.
@@ -49,9 +100,17 @@ type Runtime struct {
 	// RunErr, if set, is consulted by Run before starting; a non-nil result
 	// is returned as the error.
 	RunErr func(spec runtime.RunSpec) error
+	// FollowHang, if set, lists containers whose FollowLogs does not end when
+	// the container exits (it ends only when its context does), simulating a
+	// hung `logs --follow`.
+	FollowHang map[string]bool
+	// FollowErr, if set, is consulted by FollowLogs before streaming; a
+	// non-nil result is returned as the error.
+	FollowErr func(name string) error
 	// Now supplies timestamps; nil uses time.Now.
 	Now  func() time.Time
 	runs []runtime.RunSpec
+	ops  []string
 }
 
 var _ runtime.Runtime = (*Runtime)(nil)
@@ -80,13 +139,53 @@ func (r *Runtime) SetImage(image string, present bool) {
 	r.images[image] = present
 }
 
-// SetLogs sets the output Logs returns for a container.
+// SetLogs replaces a container's output with logs, as standard output.
 func (r *Runtime) SetLogs(name, logs string) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if c, ok := r.containers[name]; ok {
-		c.logs = logs
+		c.logs, c.midLine = nil, map[string]bool{}
+		r.writeLocked(c, Stdout, logs)
 	}
+}
+
+// WriteLog appends text to a container's stdout or stderr (see Stdout and
+// Stderr). The timestamp is added at the start of each line, so partial
+// lines may be written in several calls. Followers wake at once. It reports
+// whether the container exists.
+func (r *Runtime) WriteLog(name, stream, text string) bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	c, ok := r.containers[name]
+	if !ok {
+		return false
+	}
+	r.writeLocked(c, stream, text)
+	return true
+}
+
+func (r *Runtime) writeLocked(c *container, stream, text string) {
+	if text == "" {
+		return
+	}
+	t := r.now()
+	// Keep timestamps strictly increasing so --since is deterministic even
+	// with a coarse or frozen clock.
+	if n := len(c.logs); n > 0 && !t.After(c.logs[n-1].t) {
+		t = c.logs[n-1].t.Add(time.Nanosecond)
+	}
+	c.logs = append(c.logs, chunk{t: t, stream: stream, data: text, bol: !c.midLine[stream]})
+	c.midLine[stream] = !strings.HasSuffix(text, "\n")
+	c.wake()
+}
+
+// Ops returns the journal of container-affecting calls in order, for
+// example "stop astrosim-a" and "remove astrosim-a" (also for names that no
+// longer exist). Run is recorded as "run <name>".
+func (r *Runtime) Ops() []string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return append([]string(nil), r.ops...)
 }
 
 // SetHealth sets the image-health status Inspect reports for a container.
@@ -150,6 +249,7 @@ func (r *Runtime) exitLocked(name string, code int) bool {
 	c.state.ExitCode = code
 	c.state.FinishedAt = r.now()
 	close(c.finished)
+	c.wake()
 	return true
 }
 
@@ -220,6 +320,7 @@ func (r *Runtime) Run(_ context.Context, spec runtime.RunSpec) (string, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.runs = append(r.runs, spec)
+	r.ops = append(r.ops, "run "+spec.Name)
 	if r.RunErr != nil {
 		if err := r.RunErr(spec); err != nil {
 			return "", err
@@ -235,6 +336,8 @@ func (r *Runtime) Run(_ context.Context, spec runtime.RunSpec) (string, error) {
 	c := &container{
 		spec:     spec,
 		id:       fmt.Sprintf("fake%08d", r.nextID),
+		midLine:  map[string]bool{},
+		notify:   make(chan struct{}),
 		finished: make(chan struct{}),
 	}
 	c.state = runtime.ContainerState{Status: "running", Running: true, StartedAt: r.now()}
@@ -247,6 +350,7 @@ func (r *Runtime) Run(_ context.Context, spec runtime.RunSpec) (string, error) {
 func (r *Runtime) Stop(_ context.Context, name string, _ time.Duration) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	r.ops = append(r.ops, "stop "+name)
 	if _, ok := r.containers[name]; !ok {
 		return fmt.Errorf("%w: container %s", runtime.ErrNotFound, name)
 	}
@@ -259,7 +363,11 @@ func (r *Runtime) Stop(_ context.Context, name string, _ time.Duration) error {
 func (r *Runtime) Remove(_ context.Context, name string) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	r.ops = append(r.ops, "remove "+name)
 	r.exitLocked(name, KillExitCode)
+	if c, ok := r.containers[name]; ok {
+		c.wake() // release followers so they see the container is gone
+	}
 	delete(r.containers, name)
 	return nil
 }
@@ -307,7 +415,8 @@ func (r *Runtime) ListByLabel(_ context.Context, key, value string) ([]string, e
 	return names, nil
 }
 
-// Logs implements runtime.Runtime. The tail argument is ignored.
+// Logs implements runtime.Runtime. The output has no timestamps and the tail
+// argument is ignored.
 func (r *Runtime) Logs(_ context.Context, name string, _ int) (string, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -315,5 +424,64 @@ func (r *Runtime) Logs(_ context.Context, name string, _ int) (string, error) {
 	if !ok {
 		return "", fmt.Errorf("%w: container %s", runtime.ErrNotFound, name)
 	}
-	return c.logs, nil
+	var b strings.Builder
+	for _, ch := range c.logs {
+		b.WriteString(ch.data)
+	}
+	return b.String(), nil
+}
+
+// FollowLogs implements runtime.Runtime. It replays the output after
+// opts.Since (exclusive, like podman) and, with opts.Follow, keeps delivering
+// new output until the container has exited and everything is delivered, or
+// until ctx ends. A container listed in FollowHang never ends by itself.
+func (r *Runtime) FollowLogs(ctx context.Context, name string, opts runtime.LogOptions, stdout, stderr io.Writer) error {
+	r.mu.Lock()
+	err := r.FollowErr
+	r.mu.Unlock()
+	if err != nil {
+		if e := err(name); e != nil {
+			return e
+		}
+	}
+	delivered := 0
+	for {
+		r.mu.Lock()
+		c, ok := r.containers[name]
+		if !ok {
+			r.mu.Unlock()
+			return fmt.Errorf("%w: container %s", runtime.ErrNotFound, name)
+		}
+		var out []chunk
+		for ; delivered < len(c.logs); delivered++ {
+			ch := c.logs[delivered]
+			if opts.Since.IsZero() || ch.t.After(opts.Since) {
+				out = append(out, ch)
+			}
+		}
+		notify, finished := c.notify, !c.state.Running
+		hang := r.FollowHang[name]
+		r.mu.Unlock()
+
+		for _, ch := range out {
+			w := stdout
+			if ch.stream == Stderr {
+				w = stderr
+			}
+			if _, werr := io.WriteString(w, ch.stamped()); werr != nil {
+				return werr
+			}
+		}
+		if len(out) > 0 {
+			continue // re-check: more output or the exit may have arrived meanwhile
+		}
+		if !opts.Follow || (finished && !hang) {
+			return nil
+		}
+		select {
+		case <-notify:
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}
 }

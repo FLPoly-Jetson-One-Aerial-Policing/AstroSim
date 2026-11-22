@@ -3,6 +3,7 @@ package runtime
 import (
 	"context"
 	"errors"
+	"io"
 	"testing"
 )
 
@@ -42,5 +43,13 @@ func TestLazyNotInstalled(t *testing.T) {
 	}
 	if got := l.Info().Name; got != "docker" {
 		t.Errorf("Info name = %q", got)
+	}
+}
+
+func TestLazyFollowLogsBeforeDetection(t *testing.T) {
+	l := NewLazy(DetectOptions{Commander: &byBinary{}, LookPath: lookIn(nil)})
+	err := l.FollowLogs(context.Background(), "x", LogOptions{}, io.Discard, io.Discard)
+	if !errors.Is(err, ErrNotInstalled) {
+		t.Fatalf("FollowLogs = %v", err)
 	}
 }

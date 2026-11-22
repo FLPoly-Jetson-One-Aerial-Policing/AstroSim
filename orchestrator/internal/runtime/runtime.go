@@ -11,6 +11,7 @@ package runtime
 import (
 	"context"
 	"errors"
+	"io"
 	"time"
 )
 
@@ -94,6 +95,17 @@ type RunSpec struct {
 // HostNetwork is the Network value selecting the host network namespace.
 const HostNetwork = "host"
 
+// LogOptions selects what FollowLogs delivers.
+type LogOptions struct {
+	// Follow keeps the stream open until the container has exited and its
+	// output is delivered, or the context ends. Without it FollowLogs
+	// returns after the output that exists now.
+	Follow bool
+	// Since, when non-zero, limits the output to lines the runtime stamped
+	// strictly after this instant.
+	Since time.Time
+}
+
 // Runtime is the container engine as the orchestrator uses it. All methods
 // honour context cancellation. Implementations must be safe for concurrent
 // use.
@@ -133,4 +145,11 @@ type Runtime interface {
 	// Logs returns the last tail lines of the container's output
 	// (stdout and stderr combined).
 	Logs(ctx context.Context, name string, tail int) (string, error)
+	// FollowLogs streams the container's output: stdout lines to stdout and
+	// stderr lines to stderr, each line starting with the runtime's RFC 3339
+	// timestamp and a space. With opts.Follow it returns once the container
+	// has exited and its output is delivered, or ctx ends (then it returns
+	// the context's error). A missing container is ErrNotFound. The
+	// writers may be called concurrently with each other.
+	FollowLogs(ctx context.Context, name string, opts LogOptions, stdout, stderr io.Writer) error
 }

@@ -3,6 +3,7 @@ package runtime
 import (
 	"context"
 	"errors"
+	"io"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -91,9 +92,14 @@ func TestRunArgs(t *testing.T) {
 		cli := NewCLI("rt", d, &scripted{})
 		for _, tc := range tests {
 			t.Run(d.Name+"/"+tc.name, func(t *testing.T) {
+				want := tc.want
+				if d.Name == "podman" { // podman pins the k8s-file log driver
+					want = append(append(append([]string(nil), want[:4]...),
+						"--log-driver", "k8s-file"), want[4:]...)
+				}
 				for i := 0; i < 20; i++ { // map iteration order must not leak
-					if got := cli.RunArgs(tc.spec); !reflect.DeepEqual(got, tc.want) {
-						t.Fatalf("got  %q\nwant %q", got, tc.want)
+					if got := cli.RunArgs(tc.spec); !reflect.DeepEqual(got, want) {
+						t.Fatalf("got  %q\nwant %q", got, want)
 					}
 				}
 			})
@@ -387,4 +393,87 @@ func TestRemoveNetwork(t *testing.T) {
 			}
 		})
 	}
+}
+
+// streamer is a Commander that is also a Streamer, replaying scripted output.
+type streamer struct {
+	scripted
+	out, err string
+	code     int
+	runErr   error
+}
+
+func (s *streamer) Stream(_ context.Context, stdout, stderr io.Writer, name string, args ...string) (int, error) {
+	s.calls = append(s.calls, call{name, append([]string(nil), args...)})
+	if s.runErr != nil {
+		return 0, s.runErr
+	}
+	io.WriteString(stdout, s.out)
+	io.WriteString(stderr, s.err)
+	return s.code, nil
+}
+
+func TestFollowLogsArgs(t *testing.T) {
+	since := time.Date(2026, 11, 22, 14, 0, 0, 123456789, time.FixedZone("EST", -5*3600))
+	tests := []struct {
+		name string
+		opts LogOptions
+		want []string
+	}{
+		{"plain", LogOptions{}, []string{"logs", "--timestamps", "c"}},
+		{"follow", LogOptions{Follow: true}, []string{"logs", "--timestamps", "--follow", "c"}},
+		{"since is UTC", LogOptions{Follow: true, Since: since},
+			[]string{"logs", "--timestamps", "--follow", "--since", "2026-11-22T19:00:00.123456789Z", "c"}},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			st := &streamer{out: "o\n", err: "e\n"}
+			var out, errb strings.Builder
+			if err := NewCLI("rt", Podman, st).FollowLogs(context.Background(), "c", tc.opts, &out, &errb); err != nil {
+				t.Fatal(err)
+			}
+			if !reflect.DeepEqual(st.last(), tc.want) {
+				t.Errorf("args = %q, want %q", st.last(), tc.want)
+			}
+			if out.String() != "o\n" || errb.String() != "e\n" {
+				t.Errorf("out=%q err=%q", out.String(), errb.String())
+			}
+		})
+	}
+}
+
+func TestFollowLogsErrors(t *testing.T) {
+	ctx := context.Background()
+	t.Run("not found", func(t *testing.T) {
+		st := &streamer{code: 125, err: "Error: no container with name or ID \"c\" found: no such container\n"}
+		err := NewCLI("rt", Podman, st).FollowLogs(ctx, "c", LogOptions{}, io.Discard, io.Discard)
+		var ce *CommandError
+		if !errors.Is(err, ErrNotFound) || !errors.As(err, &ce) || ce.ExitCode != 125 {
+			t.Fatalf("err = %v", err)
+		}
+	})
+	t.Run("other failure keeps stderr tail", func(t *testing.T) {
+		st := &streamer{code: 1, err: strings.Repeat("x", 10000) + "boom\n"}
+		err := NewCLI("rt", Podman, st).FollowLogs(ctx, "c", LogOptions{}, io.Discard, io.Discard)
+		var ce *CommandError
+		if !errors.As(err, &ce) || errors.Is(err, ErrNotFound) {
+			t.Fatalf("err = %v", err)
+		}
+		if len(ce.Stderr) > maxErrText || !strings.HasSuffix(ce.Stderr, "boom") {
+			t.Errorf("stderr tail len=%d %q", len(ce.Stderr), ce.Stderr[len(ce.Stderr)-10:])
+		}
+	})
+	t.Run("run error", func(t *testing.T) {
+		want := errors.New("cancelled")
+		err := NewCLI("rt", Podman, &streamer{runErr: want}).FollowLogs(ctx, "c", LogOptions{}, io.Discard, io.Discard)
+		if !errors.Is(err, want) {
+			t.Fatalf("err = %v", err)
+		}
+	})
+	t.Run("commander cannot stream", func(t *testing.T) {
+		err := NewCLI("rt", Podman, &scripted{}).FollowLogs(ctx, "c", LogOptions{}, io.Discard, io.Discard)
+		if err == nil || !strings.Contains(err.Error(), "cannot stream") {
+			t.Fatalf("err = %v", err)
+		}
+	})
 }
