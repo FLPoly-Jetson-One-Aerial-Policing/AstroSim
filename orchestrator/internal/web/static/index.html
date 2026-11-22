@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>AstroSim</title>
+  <link rel="stylesheet" href="style.css">
+  <script type="module" src="app.js"></script>
+</head>
+<body>
+  <header>
+    <h1>AstroSim</h1>
+  </header>
+  <main>
+    <section aria-labelledby="control-heading" class="card control">
+      <h2 id="control-heading" class="visually-hidden">Simulation control</h2>
+      <button id="action" type="button" class="primary" disabled>Please wait</button>
+      <p id="status-text" class="status-text" role="status" aria-live="polite" aria-atomic="true">Connecting to AstroSim…</p>
+    </section>
+
+    <section id="banner" class="card banner" hidden>
+      <h2 id="banner-title"></h2>
+      <p id="banner-text"></p>
+    </section>
+
+    <section id="not-installed" class="card" aria-labelledby="ni-heading" hidden>
+      <h2 id="ni-heading">Not installed yet</h2>
+      <p>Run this in the AstroSim folder:</p>
+      <ul id="ni-list" class="plain"></ul>
+    </section>
+
+    <section id="failed" class="card" aria-labelledby="failed-heading" hidden>
+      <h2 id="failed-heading">What went wrong</h2>
+      <p id="failed-text"></p>
+      <details>
+        <summary>Technical details</summary>
+        <div id="failed-details"></div>
+      </details>
+    </section>
+
+    <section class="card" aria-labelledby="components-heading">
+      <h2 id="components-heading">Parts of the simulator</h2>
+      <ul id="components" class="plain"></ul>
+    </section>
+  </main>
+  <footer>
+    <p>To quit AstroSim, close its terminal window or press Ctrl+C there.</p>
+    <p id="runtime-info" class="muted"></p>
+  </footer>
+</body>
+</html>

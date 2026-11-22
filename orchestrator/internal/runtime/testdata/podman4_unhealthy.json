@@ -1,0 +1,1 @@
+{"OciVersion":"1.0.2-dev","Status":"running","Running":true,"Paused":false,"Restarting":false,"OOMKilled":false,"Dead":false,"Pid":8812,"ConmonPid":8810,"ExitCode":0,"Error":"","StartedAt":"2026-11-22T13:02:11.512003114-05:00","FinishedAt":"0001-01-01T00:00:00Z","Healthcheck":{"Status":"unhealthy","FailingStreak":3,"Log":null}}
