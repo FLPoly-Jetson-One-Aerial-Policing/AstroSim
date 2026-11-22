@@ -189,11 +189,22 @@ func (s *Session) doLaunch(d component.Definition, gen uint64, r *run, genCtx, m
 			return
 		}
 	}
-	if _, err := rt.Run(ctx, d.RunSpec(sc, s.opts.SessionID)); err != nil {
+	id, err := rt.Run(ctx, d.RunSpec(sc, s.opts.SessionID))
+	if err != nil {
+		s.note(d.ID, fmt.Sprintf("launch failed: %v", err))
 		// A missing image cannot be fixed by retrying.
 		ok, ierr := rt.ImageExists(ctx, d.Image)
 		fail(ierr == nil && !ok, fmt.Errorf("start %s: %w", name, err))
 		return
+	}
+	// Follow from the very start: the runtime replays output from container
+	// creation, so nothing is missed. This happens before Launched is posted
+	// and before r.launched closes, so teardown always sees the capture.
+	if s.opts.Logs != nil {
+		c := s.opts.Logs.Begin(d.ID, gen, name, id, d.Image)
+		r.mu.Lock()
+		r.capture = c
+		r.mu.Unlock()
 	}
 	s.post(supervisor.Event{Kind: supervisor.Launched, Component: d.ID, Gen: gen})
 	s.goRun(func() { s.watchExit(genCtx, d, gen) })
@@ -222,7 +233,15 @@ func (s *Session) watchExit(ctx context.Context, d component.Definition, gen uin
 			code, err = st.ExitCode, nil
 		}
 	}
+	s.note(d.ID, fmt.Sprintf("exited code=%d", code))
 	s.post(supervisor.Event{Kind: supervisor.Exited, Component: d.ID, Gen: gen, ExitCode: code})
+}
+
+// note writes a marker to the session log, if one is configured.
+func (s *Session) note(id, msg string) {
+	if s.opts.Logs != nil {
+		s.opts.Logs.Note(id, msg)
+	}
 }
 
 // watchHealth runs a fresh Monitor for this launch.
@@ -264,15 +283,39 @@ func (s *Session) doTeardown(a supervisor.Action, r *run) {
 	}
 	ctx, cancel := context.WithTimeout(s.root, opTimeout+d.StopTimeout)
 	defer cancel()
+	var capture Capture
+	if r != nil {
+		r.mu.Lock()
+		capture = r.capture
+		r.mu.Unlock()
+	}
 	if a.CaptureLogs {
-		if out, err := s.opts.Runtime.Logs(ctx, name, logTail); err == nil {
+		// The capture already holds the recent lines; ask the runtime only
+		// when it has none (capture off, or it saw nothing).
+		var lines []string
+		if capture != nil {
+			lines = capture.Tail(logTail)
+		}
+		if len(lines) == 0 {
+			if out, err := s.opts.Runtime.Logs(ctx, name, logTail); err == nil {
+				lines = splitLines(out)
+			}
+		}
+		if lines != nil {
 			s.mu.Lock()
-			s.lastLogs[d.ID] = splitLines(out)
+			s.lastLogs[d.ID] = lines
 			s.mu.Unlock()
 		}
 	}
 	if err := s.opts.Runtime.Stop(ctx, name, d.StopTimeout); err != nil && !errors.Is(err, runtime.ErrNotFound) {
 		s.log.Warn("stop failed", "component", d.ID, "err", err)
+	}
+	// Removing the container discards its log, so first let the follower
+	// deliver whatever the container wrote before it stopped.
+	if capture != nil {
+		dctx, dcancel := context.WithTimeout(s.root, drainTimeout)
+		capture.Drain(dctx)
+		dcancel()
 	}
 	if err := s.opts.Runtime.Remove(ctx, name); err != nil {
 		s.log.Warn("remove failed", "component", d.ID, "err", err)

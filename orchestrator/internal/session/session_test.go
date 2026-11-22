@@ -64,13 +64,23 @@ func newRig(t *testing.T, defs []component.Definition) *rig {
 // newRigWith is newRig with the runtime wrapped, to inject faults.
 func newRigWith(t *testing.T, defs []component.Definition, wrap func(*fake.Runtime) runtime.Runtime) *rig {
 	t.Helper()
+	return newRigOpts(t, defs, wrap, nil)
+}
+
+// newRigOpts is newRigWith with a hook to adjust the session Options.
+func newRigOpts(t *testing.T, defs []component.Definition, wrap func(*fake.Runtime) runtime.Runtime, mod func(*Options)) *rig {
+	t.Helper()
 	rt := fake.New()
 	bc := status.NewBroadcaster()
-	s, err := New(Options{
+	opts := Options{
 		Runtime: wrap(rt), Definitions: defs, StackContext: component.DefaultStackContext(),
 		Policy: supervisor.DefaultRestartPolicy, SessionID: "test", Broadcaster: bc,
 		AfterFunc: func(d time.Duration, f func()) *time.Timer { return time.AfterFunc(d/20, f) },
-	})
+	}
+	if mod != nil {
+		mod(&opts)
+	}
+	s, err := New(opts)
 	if err != nil {
 		t.Fatal(err)
 	}

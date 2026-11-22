@@ -42,7 +42,30 @@ const (
 	opTimeout = 30 * time.Second
 	// inspectPoll is the fallback exit-detection poll interval.
 	inspectPoll = time.Second
+	// drainTimeout bounds how long teardown waits for a stopped container's
+	// last output to reach the session log before the container is removed.
+	drainTimeout = 3 * time.Second
 )
+
+// LogCapture records the output of the containers a Session launches. The
+// logs package's Recorder satisfies it through a small adapter in main.
+// A nil LogCapture in Options disables capture.
+type LogCapture interface {
+	// Begin starts following a freshly started container's output and
+	// returns the handle teardown uses to read the tail and drain.
+	Begin(component string, gen uint64, container, containerID, image string) Capture
+	// Note writes a marker line, such as an exit code, to the component's log.
+	Note(component, msg string)
+}
+
+// Capture is one container's log follower.
+type Capture interface {
+	// Drain waits until the follower has delivered the container's final
+	// output, or ctx ends, so the container can be removed safely.
+	Drain(ctx context.Context)
+	// Tail returns up to n of the most recent lines seen.
+	Tail(n int) []string
+}
 
 // Options configures a Session.
 type Options struct {
@@ -65,6 +88,12 @@ type Options struct {
 	Logger *slog.Logger
 	// Clock supplies the time passed to the supervisor; nil means time.Now.
 	Clock func() time.Time
+	// Logs records each container's output into the session log; nil
+	// disables capture. See LogCapture.
+	Logs LogCapture
+	// LogDir is the folder the session log is written to, published in
+	// snapshots so the dashboard can show it. Empty means no file logging.
+	LogDir string
 	// AfterFunc schedules supervisor timers; nil means time.AfterFunc.
 	// Tests use it to compress the supervisor's long delays.
 	AfterFunc func(d time.Duration, f func()) *time.Timer
@@ -87,6 +116,7 @@ type run struct {
 
 	mu      sync.Mutex
 	monitor *health.Monitor
+	capture Capture // set by doLaunch before Launched is posted; may be nil
 }
 
 func (r *run) facts() []health.Fact {
@@ -339,6 +369,7 @@ func (s *Session) buildSnapshot(st supervisor.State) status.Snapshot {
 		CanStart:    st.CanStart,
 		CanStop:     st.CanStop,
 		Runtime:     status.Runtime{Name: info.Name, Version: info.Version, Network: sc.NetworkMode},
+		LogDir:      s.opts.LogDir,
 		Components:  []status.Component{},
 	}
 	s.mu.Lock()
