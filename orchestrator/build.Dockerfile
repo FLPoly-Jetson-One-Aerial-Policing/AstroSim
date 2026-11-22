@@ -7,6 +7,8 @@
 #
 #   podman build -f orchestrator/build.Dockerfile --target test .
 #   podman build -f orchestrator/build.Dockerfile --target dist -o build/orchestrator .
+#
+# orchestrator/build.sh wraps both.
 
 ARG GO_IMAGE=docker.io/library/golang:1.26
 FROM ${GO_IMAGE} AS base
@@ -28,16 +30,15 @@ RUN go test -race -count=1 ./...
 # caught here rather than on a user's machine.
 FROM base AS build
 ARG VERSION=dev
-# TODO: until ./cmd/astrosim exists this only compile-checks ./... per target.
-# When it lands, replace the `go build ./...` below with
-#   go build -trimpath -ldflags "..." -o /out/astrosim-${os}-${arch}${ext} ./cmd/astrosim
 RUN set -eu; \
     mkdir -p /out; \
     for target in linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64; do \
-        os="${target%/*}"; arch="${target#*/}"; \
+        os="${target%/*}"; arch="${target#*/}"; ext=""; \
+        if [ "$os" = windows ]; then ext=".exe"; fi; \
         echo "building ${os}/${arch}"; \
         CGO_ENABLED=0 GOOS="$os" GOARCH="$arch" \
-            go build -trimpath -ldflags "-s -w -X main.version=${VERSION}" ./...; \
+            go build -trimpath -ldflags "-s -w -X main.version=${VERSION}" \
+                -o "/out/astrosim-${os}-${arch}${ext}" ./cmd/astrosim; \
     done
 
 # Scratch stage holding only the artifacts, for `--target dist -o <dir>`.
