@@ -81,6 +81,62 @@ func TestPrecedence(t *testing.T) {
 	}
 }
 
+func TestLogSettings(t *testing.T) {
+	files := map[string]string{"c.json": `{"logDir":"/file","logKeep":5,"logMaxMB":50,"logFileMaxMB":8,"verbose":true}`}
+	tests := []struct {
+		name    string
+		args    []string
+		env     map[string]string
+		dir     string
+		keep    int
+		maxMB   int
+		fileMB  int
+		verbose bool
+	}{
+		{"defaults", nil, nil, "", 20, 500, 64, false},
+		{"file", []string{"--config", "c.json"}, nil, "/file", 5, 50, 8, true},
+		{"env beats file", []string{"--config", "c.json"}, map[string]string{
+			"ASTROSIM_ORCH_LOG_DIR": "/env", "ASTROSIM_ORCH_LOG_KEEP": "6", "ASTROSIM_ORCH_LOG_MAX_MB": "60",
+			"ASTROSIM_ORCH_LOG_FILE_MAX_MB": "9", "ASTROSIM_ORCH_VERBOSE": "false"}, "/env", 6, 60, 9, false},
+		{"flag beats env", []string{"--config", "c.json", "--log-dir", "/flag", "--log-keep=7", "--log-max-mb=70",
+			"--log-file-max-mb=10", "--verbose=false"}, map[string]string{
+			"ASTROSIM_ORCH_LOG_DIR": "/env", "ASTROSIM_ORCH_LOG_KEEP": "6", "ASTROSIM_ORCH_VERBOSE": "true"},
+			"/flag", 7, 70, 10, false},
+		{"verbose flag", []string{"--verbose"}, nil, "", 20, 500, 64, true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			c, err := load(t, tt.args, tt.env, files)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if c.LogDir != tt.dir || c.LogKeep != tt.keep || c.LogMaxMB != tt.maxMB ||
+				c.LogFileMaxMB != tt.fileMB || c.Verbose != tt.verbose {
+				t.Fatalf("got %+v", c)
+			}
+		})
+	}
+}
+
+func TestPrintLogDirIsFlagOnly(t *testing.T) {
+	c, err := load(t, []string{"--print-log-dir"}, nil, nil)
+	if err != nil || !c.PrintLogDir {
+		t.Fatalf("flag: %+v, %v", c, err)
+	}
+	c, err = load(t, nil, map[string]string{"ASTROSIM_ORCH_PRINT_LOG_DIR": "1"}, nil)
+	if err != nil || c.PrintLogDir {
+		t.Fatalf("env must not set it: %+v, %v", c, err)
+	}
+	if _, err = load(t, []string{"--config", "c.json"}, nil, map[string]string{"c.json": `{"printLogDir":true}`}); err == nil {
+		t.Fatal("JSON key printLogDir must be rejected")
+	}
+	// --log-dir keeps taking a value alongside it.
+	c, err = load(t, []string{"--print-log-dir", "--log-dir", "/x"}, nil, nil)
+	if err != nil || !c.PrintLogDir || c.LogDir != "/x" {
+		t.Fatalf("combined: %+v, %v", c, err)
+	}
+}
+
 func TestAllFlagsAndEnv(t *testing.T) {
 	c, err := load(t, []string{"--allow-remote", "--runtime", "docker", "--runtime-path", "/x/docker", "--network", "host",
 		"--publish-addr", "0.0.0.0", "--autostart", "--no-fail", "--version"}, nil, nil)
@@ -128,6 +184,8 @@ func TestLoadErrors(t *testing.T) {
 		{"trailing data", []string{"--config", "trail.json"}, nil, "unexpected data"},
 		{"bad env bool", nil, map[string]string{"ASTROSIM_ORCH_NO_FAIL": "maybe"}, "not a boolean"},
 		{"bad env int", nil, map[string]string{"ASTROSIM_ORCH_RESTART_MAX": "x"}, "not a number"},
+		{"bad env log keep", nil, map[string]string{"ASTROSIM_ORCH_LOG_KEEP": "many"}, "ASTROSIM_ORCH_LOG_KEEP"},
+		{"bad env log max", nil, map[string]string{"ASTROSIM_ORCH_LOG_MAX_MB": "1.5"}, "not a number"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -185,6 +243,10 @@ func TestValidate(t *testing.T) {
 		{"listen without port", func(c *Config) { c.Listen = "127.0.0.1" }, "linux", "--listen"},
 		{"listen bad port", func(c *Config) { c.Listen = "127.0.0.1:99999" }, "linux", "invalid port"},
 		{"restart-max zero", func(c *Config) { c.RestartMax = 0 }, "linux", "--restart-max"},
+		{"log keep zero", func(c *Config) { c.LogKeep = 0 }, "linux", "--log-keep"},
+		{"log max zero", func(c *Config) { c.LogMaxMB = 0 }, "linux", "--log-max-mb"},
+		{"log file max small", func(c *Config) { c.LogFileMaxMB = 3 }, "linux", "--log-file-max-mb"},
+		{"log file max minimum", func(c *Config) { c.LogFileMaxMB = 4 }, "linux", ""},
 		{"bad log level", func(c *Config) { c.LogLevel = "loud" }, "linux", "--log-level"},
 		{"bad publish addr", func(c *Config) { c.PublishAddr = "localhost" }, "linux", "--publish-addr"},
 		{"unknown component", func(c *Config) { c.Components = map[string]ComponentOverride{"zzz": {}} }, "linux", "components.zzz: unknown component (known: a, b)"},
