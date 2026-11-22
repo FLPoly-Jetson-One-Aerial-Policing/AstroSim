@@ -195,6 +195,9 @@ func TestStartRunStop(t *testing.T) {
 	if got := r.containers(); len(got) != 2 {
 		t.Fatalf("containers = %v", got)
 	}
+	if got, _ := r.rt.ListNetworksByLabel(context.Background(), component.LabelManaged, "true"); len(got) != 1 || got[0] != "astrosim" {
+		t.Errorf("labelled networks = %v, want the astrosim network", got)
+	}
 	spec, _ := r.rt.Spec("astrosim-a")
 	if spec.Labels[component.LabelSession] != "test" || spec.Network != "astrosim" {
 		t.Errorf("spec = %+v", spec)

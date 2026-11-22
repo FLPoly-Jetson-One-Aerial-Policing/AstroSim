@@ -299,9 +299,10 @@ func TestLogs(t *testing.T) {
 
 func TestEnsureNetwork(t *testing.T) {
 	ctx := context.Background()
+	labels := map[string]string{"astrosim.managed": "true", "a": "b"}
 	t.Run("exists", func(t *testing.T) {
 		sc := &scripted{}
-		if err := NewCLI("rt", Podman, sc).EnsureNetwork(ctx, "astrosim"); err != nil {
+		if err := NewCLI("rt", Podman, sc).EnsureNetwork(ctx, "astrosim", labels); err != nil {
 			t.Fatal(err)
 		}
 		if len(sc.calls) != 1 {
@@ -311,16 +312,16 @@ func TestEnsureNetwork(t *testing.T) {
 	t.Run("created", func(t *testing.T) {
 		sc := &scripted{results: map[string]Result{
 			"network inspect": {ExitCode: 125, Stderr: "Error: network not found: astrosim"}}}
-		if err := NewCLI("rt", Podman, sc).EnsureNetwork(ctx, "astrosim"); err != nil {
+		if err := NewCLI("rt", Podman, sc).EnsureNetwork(ctx, "astrosim", labels); err != nil {
 			t.Fatal(err)
 		}
-		if want := []string{"network", "create", "astrosim"}; !reflect.DeepEqual(sc.last(), want) {
+		if want := []string{"network", "create", "--label", "a=b", "--label", "astrosim.managed=true", "astrosim"}; !reflect.DeepEqual(sc.last(), want) {
 			t.Errorf("args = %q", sc.last())
 		}
 	})
 	t.Run("inspect fails for another reason", func(t *testing.T) {
 		sc := &scripted{results: map[string]Result{"network inspect": {ExitCode: 1, Stderr: "boom"}}}
-		if err := NewCLI("rt", Docker, sc).EnsureNetwork(ctx, "astrosim"); err == nil {
+		if err := NewCLI("rt", Docker, sc).EnsureNetwork(ctx, "astrosim", labels); err == nil {
 			t.Fatal("want error")
 		}
 		if len(sc.calls) != 1 {
@@ -342,5 +343,48 @@ func TestPing(t *testing.T) {
 	sc = &scripted{results: map[string]Result{"version": {ExitCode: 1, Stderr: "Cannot connect"}}}
 	if _, err := NewCLI("docker", Docker, sc).Ping(ctx); !errors.Is(err, ErrNotRunning) {
 		t.Errorf("err = %v", err)
+	}
+}
+
+func TestListNetworksByLabel(t *testing.T) {
+	for _, d := range []Dialect{Podman, Docker} {
+		sc := &scripted{results: map[string]Result{"network ls": {Stdout: "zeta\nastrosim\n\n"}}}
+		got, err := NewCLI("rt", d, sc).ListNetworksByLabel(context.Background(), "astrosim.managed", "true")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if want := []string{"astrosim", "zeta"}; !reflect.DeepEqual(got, want) {
+			t.Errorf("got %q, want %q", got, want)
+		}
+		want := []string{"network", "ls", "--filter", "label=astrosim.managed=true", "--format", "{{.Name}}"}
+		if !reflect.DeepEqual(sc.last(), want) {
+			t.Errorf("args = %q", sc.last())
+		}
+	}
+}
+
+func TestRemoveNetwork(t *testing.T) {
+	ctx := context.Background()
+	tests := []struct {
+		name    string
+		res     Result
+		wantErr bool
+	}{
+		{"removed", Result{}, false},
+		{"podman not found", Result{ExitCode: 1, Stderr: "Error: unable to find network with name or ID x: network not found"}, false},
+		{"docker not found", Result{ExitCode: 1, Stderr: "Error response from daemon: network x not found"}, false},
+		{"in use", Result{ExitCode: 1, Stderr: "network has active endpoints"}, true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			sc := &scripted{results: map[string]Result{"network rm": tt.res}}
+			err := NewCLI("rt", Podman, sc).RemoveNetwork(ctx, "x")
+			if (err != nil) != tt.wantErr {
+				t.Errorf("err = %v, wantErr %v", err, tt.wantErr)
+			}
+			if want := []string{"network", "rm", "x"}; !reflect.DeepEqual(sc.last(), want) {
+				t.Errorf("args = %q", sc.last())
+			}
+		})
 	}
 }

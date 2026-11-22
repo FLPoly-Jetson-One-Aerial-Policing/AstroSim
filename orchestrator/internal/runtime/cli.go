@@ -143,8 +143,9 @@ func (c *CLI) ImageExists(ctx context.Context, image string) (bool, error) {
 	}
 }
 
-// EnsureNetwork implements Runtime.
-func (c *CLI) EnsureNetwork(ctx context.Context, name string) error {
+// EnsureNetwork implements Runtime. Podman and docker share the
+// `network create --label k=v` syntax.
+func (c *CLI) EnsureNetwork(ctx context.Context, name string, labels map[string]string) error {
 	_, err := c.do(ctx, "network", "inspect", name)
 	if err == nil {
 		return nil
@@ -152,7 +153,29 @@ func (c *CLI) EnsureNetwork(ctx context.Context, name string) error {
 	if !errors.Is(err, ErrNotFound) {
 		return err
 	}
-	_, err = c.do(ctx, "network", "create", name)
+	args := []string{"network", "create"}
+	for _, k := range sortedKeys(labels) {
+		args = append(args, "--label", k+"="+labels[k])
+	}
+	_, err = c.do(ctx, append(args, name)...)
+	return err
+}
+
+// ListNetworksByLabel implements Runtime.
+func (c *CLI) ListNetworksByLabel(ctx context.Context, key, value string) ([]string, error) {
+	res, err := c.do(ctx, "network", "ls", "--filter", "label="+key+"="+value, "--format", "{{.Name}}")
+	if err != nil {
+		return nil, err
+	}
+	return splitNames(res.Stdout), nil
+}
+
+// RemoveNetwork implements Runtime. A missing network is success.
+func (c *CLI) RemoveNetwork(ctx context.Context, name string) error {
+	_, err := c.do(ctx, "network", "rm", name)
+	if errors.Is(err, ErrNotFound) {
+		return nil
+	}
 	return err
 }
 
@@ -320,14 +343,20 @@ func (c *CLI) ListByLabel(ctx context.Context, key, value string) ([]string, err
 	if err != nil {
 		return nil, err
 	}
+	return splitNames(res.Stdout), nil
+}
+
+// splitNames returns the sorted non-empty lines of a `--format {{.Name}}`
+// listing.
+func splitNames(out string) []string {
 	var names []string
-	for _, line := range strings.Split(res.Stdout, "\n") {
+	for _, line := range strings.Split(out, "\n") {
 		if line = strings.TrimSpace(line); line != "" {
 			names = append(names, line)
 		}
 	}
 	sort.Strings(names)
-	return names, nil
+	return names
 }
 
 // Logs implements Runtime. Container stderr arrives on the command's stderr,

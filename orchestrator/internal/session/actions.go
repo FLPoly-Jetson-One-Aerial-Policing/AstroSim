@@ -140,7 +140,7 @@ func (s *Session) doLaunch(d component.Definition, gen uint64, r *run, genCtx, m
 	// A container left over from an earlier attempt would block the name.
 	_ = rt.Remove(ctx, name)
 	if sc.NetworkMode != component.NetworkHost {
-		if err := rt.EnsureNetwork(ctx, sc.NetworkName); err != nil {
+		if err := rt.EnsureNetwork(ctx, sc.NetworkName, map[string]string{component.LabelManaged: "true"}); err != nil {
 			fail(false, fmt.Errorf("create network %s: %w", sc.NetworkName, err))
 			return
 		}

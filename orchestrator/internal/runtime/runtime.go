@@ -105,8 +105,16 @@ type Runtime interface {
 	// ImageExists reports whether the image is present locally. A missing
 	// image is (false, nil); a daemon error is a non-nil error.
 	ImageExists(ctx context.Context, image string) (bool, error)
-	// EnsureNetwork creates the user network if it does not exist.
-	EnsureNetwork(ctx context.Context, name string) error
+	// EnsureNetwork creates the user network, carrying labels, if it does
+	// not exist. Labels are applied only on creation; an existing network
+	// is left as it is.
+	EnsureNetwork(ctx context.Context, name string, labels map[string]string) error
+	// ListNetworksByLabel returns the names of all networks carrying the
+	// label "key=value".
+	ListNetworksByLabel(ctx context.Context, key, value string) ([]string, error)
+	// RemoveNetwork removes the network. A missing network is not an error.
+	// A network still in use by a container is.
+	RemoveNetwork(ctx context.Context, name string) error
 	// Run starts a detached container (without --rm, so its exit code and
 	// logs stay inspectable) and returns its ID.
 	Run(ctx context.Context, spec RunSpec) (string, error)

@@ -78,12 +78,30 @@ func (l *Lazy) ImageExists(ctx context.Context, image string) (bool, error) {
 }
 
 // EnsureNetwork implements Runtime.
-func (l *Lazy) EnsureNetwork(ctx context.Context, name string) error {
+func (l *Lazy) EnsureNetwork(ctx context.Context, name string, labels map[string]string) error {
 	rt, err := l.inner()
 	if rt == nil {
 		return err
 	}
-	return rt.EnsureNetwork(ctx, name)
+	return rt.EnsureNetwork(ctx, name, labels)
+}
+
+// ListNetworksByLabel implements Runtime.
+func (l *Lazy) ListNetworksByLabel(ctx context.Context, key, value string) ([]string, error) {
+	rt, err := l.inner()
+	if rt == nil {
+		return nil, err
+	}
+	return rt.ListNetworksByLabel(ctx, key, value)
+}
+
+// RemoveNetwork implements Runtime.
+func (l *Lazy) RemoveNetwork(ctx context.Context, name string) error {
+	rt, err := l.inner()
+	if rt == nil {
+		return err
+	}
+	return rt.RemoveNetwork(ctx, name)
 }
 
 // Run implements Runtime.
