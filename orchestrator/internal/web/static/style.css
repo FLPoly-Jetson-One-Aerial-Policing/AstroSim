@@ -92,6 +92,11 @@ code {
   border: 1px solid var(--border); border-radius: 0.4rem;
   background: var(--card); color: var(--text);
 }
+a.button {
+  font: inherit; padding: 0.25rem 0.75rem; text-decoration: none;
+  border: 1px solid var(--accent); border-radius: 0.4rem;
+  background: var(--accent); color: var(--accent-text);
+}
 pre {
   font: 0.85rem ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   background: var(--bg); border: 1px solid var(--border); border-radius: 0.4rem;

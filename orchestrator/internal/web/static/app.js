@@ -44,6 +44,13 @@ const TEXT = {
   },
   button: { start: "Start", stop: "Stop", wait: "Please wait", busy: "Working…" },
   notInstalledNote: "Run this in the AstroSim folder",
+  // The Logs card and the hint on the failed panel.
+  logs: {
+    heading: "Logs",
+    where: "AstroSim saves technical logs of every part of the simulator in this folder:",
+    download: "Download logs",
+    failedHint: "Download the logs and attach them when you report the problem.",
+  },
   copy: "Copy",
   copied: "Copied",
   copyFailed: "Select and copy",
@@ -173,6 +180,7 @@ function renderFailed(s) {
   $("failed").hidden = !show;
   if (!show) return;
   $("failed-text").textContent = reasonText(s);
+  $("failed-hint").textContent = s.logDir ? TEXT.logs.failedHint : "";
   const box = $("failed-details");
   const parts = [];
   if (s.reason.detail) parts.push(el("p", {}, s.reason.detail));
@@ -182,6 +190,23 @@ function renderFailed(s) {
     }
   }
   box.replaceChildren(...parts);
+}
+
+function renderLogs(s) {
+  // logDir is empty when logging could not be set up; then there is nothing to show.
+  const show = Boolean(s.logDir);
+  $("logs").hidden = !show;
+  if (!show) return;
+  $("logs-heading").textContent = TEXT.logs.heading;
+  $("logs-where").textContent = TEXT.logs.where;
+  $("logs-dir").textContent = s.logDir;
+  $("logs-download").textContent = TEXT.logs.download;
+  const copy = $("logs-copy");
+  if (!copy.dataset.ready) {
+    copy.dataset.ready = "1";
+    copy.textContent = TEXT.copy;
+    copy.addEventListener("click", () => copyText($("logs-dir").textContent, copy));
+  }
 }
 
 function renderBanner(s) {
@@ -209,6 +234,7 @@ function render() {
   renderNotInstalled(s);
   renderFailed(s);
   renderComponents(s);
+  renderLogs(s);
   $("runtime-info").textContent = s.runtime && s.runtime.name ? TEXT.runtime(s.runtime) : "";
 }
 
