@@ -20,21 +20,65 @@ func hostPort(sc component.StackContext, port int) string {
 	return sc.ProbeAddr(port)
 }
 
-// CleanupStale removes every container carrying the managed label. main
-// calls it once, after taking the single-instance lock, to clear leftovers
-// of a previous crashed run.
-func CleanupStale(ctx context.Context, rt runtime.Runtime) error {
+// CleanupStale removes every container carrying the managed label and
+// returns the names it removed. main calls it after taking the
+// single-instance lock, to clear leftovers of a previous crashed run, and
+// for the --cleanup command. Containers it could not remove are reported in
+// the error and are not in the returned list.
+func CleanupStale(ctx context.Context, rt runtime.Runtime) ([]string, error) {
 	names, err := rt.ListByLabel(ctx, component.LabelManaged, "true")
 	if err != nil {
-		return fmt.Errorf("list stale containers: %w", err)
+		return nil, fmt.Errorf("list stale containers: %w", err)
 	}
+	var removed []string
 	var errs []error
 	for _, n := range names {
 		if err := rt.Remove(ctx, n); err != nil {
 			errs = append(errs, fmt.Errorf("remove %s: %w", n, err))
+			continue
 		}
+		removed = append(removed, n)
 	}
-	return errors.Join(errs...)
+	return removed, errors.Join(errs...)
+}
+
+// Pruned lists what Prune removed.
+type Pruned struct {
+	// Containers are the names of the removed containers.
+	Containers []string
+	// Networks are the names of the removed networks.
+	Networks []string
+}
+
+// Empty reports whether nothing was removed.
+func (p Pruned) Empty() bool { return len(p.Containers) == 0 && len(p.Networks) == 0 }
+
+// Prune removes every managed container (as CleanupStale does) and then
+// every network carrying the managed label. The networks go second because
+// a network cannot be removed while a container is attached to it. Only
+// labelled resources are touched, never ones made by hand. The caller must
+// hold the single-instance lock. Whatever was removed is returned even when
+// the error is non-nil.
+func Prune(ctx context.Context, rt runtime.Runtime) (Pruned, error) {
+	var out Pruned
+	var errs []error
+	var err error
+	if out.Containers, err = CleanupStale(ctx, rt); err != nil {
+		errs = append(errs, err)
+	}
+	nets, err := rt.ListNetworksByLabel(ctx, component.LabelManaged, "true")
+	if err != nil {
+		errs = append(errs, fmt.Errorf("list networks: %w", err))
+		return out, errors.Join(errs...)
+	}
+	for _, n := range nets {
+		if err := rt.RemoveNetwork(ctx, n); err != nil {
+			errs = append(errs, fmt.Errorf("remove network %s: %w", n, err))
+			continue
+		}
+		out.Networks = append(out.Networks, n)
+	}
+	return out, errors.Join(errs...)
 }
 
 // --- preflight --------------------------------------------------------

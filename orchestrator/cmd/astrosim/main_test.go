@@ -1,11 +1,20 @@
 package main
 
 import (
+	"bytes"
+	"context"
 	"errors"
+	"log/slog"
 	"net"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
+
+	"github.com/FLPoly-Jetson-One-Aerial-Policing/AstroSim/orchestrator/internal/instance"
+	"github.com/FLPoly-Jetson-One-Aerial-Policing/AstroSim/orchestrator/internal/logging"
+	"github.com/FLPoly-Jetson-One-Aerial-Policing/AstroSim/orchestrator/internal/runtime"
+	"github.com/FLPoly-Jetson-One-Aerial-Policing/AstroSim/orchestrator/internal/runtime/fake"
 )
 
 func tcp(s string) net.Addr {
@@ -72,5 +81,70 @@ func TestRunExitCodes(t *testing.T) {
 		if code := run(args, env, &out, &errb); code != 2 || !strings.Contains(errb.String(), "astrosim") {
 			t.Errorf("%v: code %d, stderr %q", args, code, errb.String())
 		}
+	}
+}
+
+func TestCleanupCommand(t *testing.T) {
+	ctx := context.Background()
+	managed := map[string]string{"astrosim.managed": "true"}
+	setup := func() *fake.Runtime {
+		rt := fake.New()
+		rt.SetImage("img", true)
+		_, _ = rt.Run(ctx, runtime.RunSpec{Name: "astrosim-engine", Image: "img", Labels: managed})
+		_, _ = rt.Run(ctx, runtime.RunSpec{Name: "by-hand", Image: "img"})
+		_ = rt.EnsureNetwork(ctx, "astrosim", managed)
+		return rt
+	}
+	tests := []struct {
+		name     string
+		prune    bool
+		pingErr  error
+		wantCode int
+		wantOut  string
+		wantNets int
+	}{
+		{"cleanup keeps the network", false, nil, exitOK, "removed container astrosim-engine\n", 1},
+		{"prune removes the network", true, nil, exitOK, "removed container astrosim-engine\nremoved network astrosim\n", 0},
+		{"no runtime", false, runtime.ErrNotRunning, exitFailure, "", 1},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			rt := setup()
+			rt.PingErr = tt.pingErr
+			var out, errb bytes.Buffer
+			code := cleanup(rt, tt.prune, &out, logging.New(&errb, slog.LevelInfo))
+			if code != tt.wantCode || out.String() != tt.wantOut {
+				t.Errorf("code=%d out=%q, want %d %q (log %q)", code, out.String(), tt.wantCode, tt.wantOut, errb.String())
+			}
+			if n := len(rt.Networks()); n != tt.wantNets {
+				t.Errorf("networks = %d, want %d", n, tt.wantNets)
+			}
+			if _, err := rt.Inspect(ctx, "by-hand"); err != nil {
+				t.Error("unlabelled container was touched")
+			}
+		})
+	}
+	t.Run("nothing to clean up", func(t *testing.T) {
+		var out bytes.Buffer
+		if code := cleanup(fake.New(), true, &out, logging.New(&bytes.Buffer{}, slog.LevelInfo)); code != exitOK || out.String() != "nothing to clean up\n" {
+			t.Errorf("code=%d out=%q", code, out.String())
+		}
+	})
+}
+
+func TestRefuseCleanup(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "lock")
+	lock, err := instance.Acquire(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer lock.Release()
+	if err := lock.Publish("http://127.0.0.1:8770"); err != nil {
+		t.Fatal(err)
+	}
+	var out bytes.Buffer
+	code := refuseCleanup(path, &out, logging.New(&bytes.Buffer{}, slog.LevelInfo))
+	if code != exitFailure || out.String() != "AstroSim is running at http://127.0.0.1:8770; stop it before cleaning up\n" {
+		t.Errorf("code=%d out=%q", code, out.String())
 	}
 }

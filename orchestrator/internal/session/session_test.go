@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"net"
+	"reflect"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -321,8 +322,12 @@ func TestCleanupStale(t *testing.T) {
 	ctx := context.Background()
 	_, _ = rt.Run(ctx, runtimeSpecLabelled("astrosim-old", true))
 	_, _ = rt.Run(ctx, runtimeSpecLabelled("by-hand", false))
-	if err := CleanupStale(ctx, rt); err != nil {
+	removed, err := CleanupStale(ctx, rt)
+	if err != nil {
 		t.Fatal(err)
+	}
+	if len(removed) != 1 || removed[0] != "astrosim-old" {
+		t.Errorf("removed = %v", removed)
 	}
 	if _, err := rt.Inspect(ctx, "astrosim-old"); err == nil {
 		t.Error("managed container survived")
@@ -330,4 +335,51 @@ func TestCleanupStale(t *testing.T) {
 	if _, err := rt.Inspect(ctx, "by-hand"); err != nil {
 		t.Error("unmanaged container was removed")
 	}
+}
+
+func TestPrune(t *testing.T) {
+	ctx := context.Background()
+	managed := map[string]string{component.LabelManaged: "true"}
+	setup := func() *fake.Runtime {
+		rt := fake.New()
+		rt.SetImage("x", true)
+		_, _ = rt.Run(ctx, runtimeSpecLabelled("astrosim-old", true))
+		_, _ = rt.Run(ctx, runtimeSpecLabelled("by-hand", false))
+		_ = rt.EnsureNetwork(ctx, "astrosim", managed)
+		_ = rt.EnsureNetwork(ctx, "by-hand-net", nil)
+		return rt
+	}
+
+	t.Run("removes only labelled resources", func(t *testing.T) {
+		rt := setup()
+		got, err := Prune(ctx, rt)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !reflect.DeepEqual(got.Containers, []string{"astrosim-old"}) || !reflect.DeepEqual(got.Networks, []string{"astrosim"}) {
+			t.Errorf("pruned = %+v", got)
+		}
+		if got.Empty() {
+			t.Error("Empty() on a non-empty result")
+		}
+		if _, err := rt.Inspect(ctx, "by-hand"); err != nil {
+			t.Error("unlabelled container was removed")
+		}
+		if n := rt.Networks(); !reflect.DeepEqual(n, []string{"by-hand-net"}) {
+			t.Errorf("networks left = %v", n)
+		}
+	})
+	t.Run("nothing to do", func(t *testing.T) {
+		got, err := Prune(ctx, fake.New())
+		if err != nil || !got.Empty() {
+			t.Errorf("Prune on an empty runtime = %+v, %v", got, err)
+		}
+	})
+	t.Run("second run is a no-op", func(t *testing.T) {
+		rt := setup()
+		_, _ = Prune(ctx, rt)
+		if got, err := Prune(ctx, rt); err != nil || !got.Empty() {
+			t.Errorf("second Prune = %+v, %v", got, err)
+		}
+	})
 }

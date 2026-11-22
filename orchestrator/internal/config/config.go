@@ -7,7 +7,8 @@
 //  3. ASTROSIM_ORCH_<KEY> environment variables
 //  4. command-line flags
 //
-// Only the JSON file can carry per-component overrides.
+// Only the JSON file can carry per-component overrides. The one-shot
+// commands (--cleanup, --prune, --version) exist only as flags.
 package config
 
 import (
@@ -107,6 +108,15 @@ type Config struct {
 	ConfigFile string `json:"-"`
 	// ShowVersion is set by --version. It is not part of the JSON file.
 	ShowVersion bool `json:"-"`
+	// Cleanup is set by --cleanup: remove leftover managed containers and
+	// exit, without serving the dashboard. It is a one-shot command, so it
+	// is a flag only: not in the JSON file and with no environment
+	// variable, where a stray setting would silently turn every launch
+	// into a cleanup.
+	Cleanup bool `json:"-"`
+	// Prune is set by --prune: everything --cleanup does, plus removing the
+	// managed network. It implies Cleanup. Like Cleanup it is a flag only.
+	Prune bool `json:"-"`
 }
 
 // Defaults returns the built-in configuration.
@@ -162,8 +172,10 @@ func LoadTo(w io.Writer, args []string, env func(string) string, readFile ReadFi
 	fs.StringVar(&f.LogLevel, "log-level", def.LogLevel, "log level: debug, info, warn or error")
 	fs.StringVar(&f.ConfigFile, "config", "", "JSON configuration file")
 	fs.BoolVar(&f.ShowVersion, "version", false, "print the version and exit")
+	fs.BoolVar(&f.Cleanup, "cleanup", false, "remove leftover AstroSim containers and exit (refused while AstroSim is running)")
+	fs.BoolVar(&f.Prune, "prune", false, "like --cleanup, and also remove the AstroSim network")
 	fs.Usage = func() {
-		fmt.Fprintf(w, "Usage: astrosim [flags]\n\nStarts the AstroSim dashboard. Every setting except the per-component\noverrides also has an environment variable, %s<NAME> (for example\n%sALLOW_REMOTE); flags win over the environment, which wins over --config.\n\nFlags:\n", EnvPrefix, EnvPrefix)
+		fmt.Fprintf(w, "Usage: astrosim [flags]\n\nStarts the AstroSim dashboard. Every setting except the per-component\noverrides and the one-shot --cleanup, --prune and --version flags also has\nan environment variable, %s<NAME> (for example\n%sALLOW_REMOTE); flags win over the environment, which wins over --config.\n\nFlags:\n", EnvPrefix, EnvPrefix)
 		fs.PrintDefaults()
 	}
 	if err := fs.Parse(args); err != nil {
@@ -233,6 +245,10 @@ func LoadTo(w io.Writer, args []string, env func(string) string, readFile ReadFi
 		cfg.LogLevel = f.LogLevel
 	}
 	cfg.ShowVersion = f.ShowVersion
+	cfg.Prune = f.Prune
+	// Pruning does everything cleaning up does, so callers only test Cleanup
+	// to know a one-shot cleanup was asked for.
+	cfg.Cleanup = f.Cleanup || f.Prune
 	return cfg, nil
 }
 
@@ -325,6 +341,11 @@ func (c Config) Validate(goos string, defs []component.Definition) error {
 				"so anyone who can reach it could start and stop the simulation; "+
 				"add --allow-remote if you really want that", c.Listen)
 		}
+	}
+	if (c.Cleanup || c.Prune) && c.Autostart {
+		// Autostart may also come from the config file or the environment.
+		bad("--cleanup and --prune remove containers and exit, so they cannot be combined with "+
+			"--autostart (also check --config and %sAUTOSTART)", EnvPrefix)
 	}
 	errs = append(errs, c.validateComponents(defs)...)
 	return errors.Join(errs...)
