@@ -1,10 +1,12 @@
-# AstroSim orchestrator: test, cross-compile and export stages.
+# Build and test image for the AstroSim orchestrator. This file is for
+# building and testing only: the orchestrator itself runs natively on the
+# host, never in a container.
 #
 # Build context is the repository root (the wire tests read
-# shared/proto/testdata), e.g. from the repo root:
+# shared/proto/testdata). From the repo root:
 #
-#   podman build -f orchestrator/Dockerfile --target test .
-#   podman build -f orchestrator/Dockerfile --target dist -o build/orchestrator .
+#   podman build -f orchestrator/build.Dockerfile --target test .
+#   podman build -f orchestrator/build.Dockerfile --target dist -o build/orchestrator .
 
 ARG GO_IMAGE=docker.io/library/golang:1.26
 FROM ${GO_IMAGE} AS base
