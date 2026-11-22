@@ -92,6 +92,12 @@ type RestartPolicy struct {
 	// repaired by restarting; the failure after that makes the stack give
 	// up. Zero means never restart.
 	MaxAttempts int
+	// Unlimited makes the stack never give up on transient failures: it
+	// keeps restarting, using the last Backoff entry once the list is used
+	// up, until the user stops it. MaxAttempts is then ignored and reported
+	// as 0. Permanent failures (see Event.Permanent) still end in failed,
+	// because retrying cannot fix them.
+	Unlimited bool
 	// Backoff is the wait before restart attempt n (index n-1); attempts
 	// beyond the list use the last entry. Empty means no wait.
 	Backoff []time.Duration

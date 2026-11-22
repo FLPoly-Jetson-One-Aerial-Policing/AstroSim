@@ -74,7 +74,7 @@ func New(plan *Plan, policy RestartPolicy) *Supervisor {
 	if policy.StableAfter <= 0 {
 		policy.StableAfter = DefaultRestartPolicy.StableAfter
 	}
-	if policy.MaxAttempts < 0 {
+	if policy.MaxAttempts < 0 || policy.Unlimited {
 		policy.MaxAttempts = 0
 	}
 	s := &Supervisor{
@@ -110,7 +110,9 @@ func (s *Supervisor) Snapshot() State {
 	for _, n := range s.failures {
 		st.Attempt = max(st.Attempt, n)
 	}
-	st.Attempt = min(st.Attempt, s.policy.MaxAttempts)
+	if !s.policy.Unlimited {
+		st.Attempt = min(st.Attempt, s.policy.MaxAttempts)
+	}
 	for _, id := range s.plan.order {
 		c := s.comps[id]
 		cs := ComponentStatus{ID: id, State: c.state, Gen: c.gen}
@@ -358,7 +360,7 @@ func (s *Supervisor) fail(c *comp, st ComponentState, code, detail string, perma
 		return
 	}
 	s.failures[g]++
-	if s.failures[g] > s.policy.MaxAttempts {
+	if !s.policy.Unlimited && s.failures[g] > s.policy.MaxAttempts {
 		s.reason = Reason{
 			Code:      ReasonRestartLimit,
 			Detail:    fmt.Sprintf("%s; gave up after %d restart attempts", detail, s.policy.MaxAttempts),

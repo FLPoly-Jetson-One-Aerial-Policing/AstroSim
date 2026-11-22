@@ -747,3 +747,113 @@ func TestSnapshotComponents(t *testing.T) {
 		t.Error("Since not set")
 	}
 }
+
+// recoverOnce fails b and walks the stack back to running, returning the
+// backoff delay that was scheduled.
+func recoverOnce(r *rig) string {
+	d, _ := recoverOnceGen(r)
+	return d
+}
+
+// recoverOnceGen is recoverOnce that also returns the stable-timer generation
+// armed when the stack is running again.
+func recoverOnceGen(r *rig) (string, uint64) {
+	r.t.Helper()
+	r.exit("b", 1)
+	r.step(r.ev(Removed, "c"))
+	acts, _ := r.stepRaw(r.ev(Removed, "b"))
+	var after time.Duration
+	for _, a := range acts {
+		if a.Kind == ActionSetTimer && a.Timer == TimerBackoff {
+			after = a.After
+		}
+	}
+	gen := lastTimerGen(acts, TimerBackoff, "group:gb")
+	r.timer(TimerBackoff, "group:gb", gen)
+	r.step(r.ev(Launched, "b"))
+	r.step(r.ev(Ready, "b"))
+	r.step(r.ev(Launched, "c"))
+	stable, _ := r.stepRaw(r.ev(Ready, "c"))
+	r.phase(PhaseRunning)
+	return after.String(), lastTimerGen(stable, TimerStable, "group:gb")
+}
+
+func TestUnlimitedNeverGivesUp(t *testing.T) {
+	pol := DefaultRestartPolicy
+	pol.Unlimited = true
+	r := newRig(t, chainDefs(), pol)
+	r.bringUp()
+	want := []string{"2s", "5s", "10s", "10s", "10s", "10s", "10s", "10s"}
+	for i, w := range want {
+		if got := recoverOnce(r); got != w {
+			t.Fatalf("failure %d: backoff = %s, want %s", i+1, got, w)
+		}
+		st := r.s.Snapshot()
+		if st.MaxAttempts != 0 || st.Attempt != i+1 {
+			t.Fatalf("failure %d: attempt/max = %d/%d", i+1, st.Attempt, st.MaxAttempts)
+		}
+	}
+}
+
+func TestUnlimitedStableStillResets(t *testing.T) {
+	pol := DefaultRestartPolicy
+	pol.Unlimited = true
+	r := newRig(t, chainDefs(), pol)
+	r.bringUp()
+	recoverOnce(r)
+	_, gen := recoverOnceGen(r)
+	r.step(Event{Kind: TimerFired, Timer: TimerStable, Key: "group:gb", Gen: gen})
+	if got := r.s.Snapshot().Attempt; got != 0 {
+		t.Fatalf("attempt after stable = %d, want 0", got)
+	}
+	if got := recoverOnce(r); got != "2s" {
+		t.Fatalf("backoff after reset = %s, want 2s", got)
+	}
+}
+
+func TestUnlimitedPermanentStillFails(t *testing.T) {
+	pol := DefaultRestartPolicy
+	pol.Unlimited = true
+	for name, trigger := range map[string]func(r *rig){
+		"exit code": func(r *rig) { r.exit("a", 2) },
+		"launch failure": func(r *rig) {
+			e := r.ev(LaunchFailed, "a")
+			e.Permanent = true
+			r.step(e)
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			r := newRig(t, chainDefs(), pol)
+			if name == "exit code" {
+				r.bringUp()
+			} else {
+				r.step(Event{Kind: StartRequested})
+				r.step(Event{Kind: PreflightDone, Gen: r.s.preflightGen})
+			}
+			trigger(r)
+			for _, id := range []string{"c", "b", "a"} {
+				r.step(r.ev(Removed, id))
+			}
+			r.phase(PhaseFailed)
+		})
+	}
+}
+
+func TestUnlimitedStopDuringBackoff(t *testing.T) {
+	pol := DefaultRestartPolicy
+	pol.Unlimited = true
+	r := newRig(t, chainDefs(), pol)
+	r.bringUp()
+	for range 5 {
+		recoverOnce(r)
+	}
+	r.exit("b", 1)
+	r.step(r.ev(Removed, "c"))
+	acts, _ := r.stepRaw(r.ev(Removed, "b"))
+	gen := lastTimerGen(acts, TimerBackoff, "group:gb")
+	r.want(r.step(Event{Kind: StopRequested}), "teardown:a#1:stop:logs=false")
+	r.step(r.ev(Removed, "a"))
+	r.phase(PhaseStopped)
+	r.want(r.timer(TimerBackoff, "group:gb", gen))
+	r.phase(PhaseStopped)
+}
