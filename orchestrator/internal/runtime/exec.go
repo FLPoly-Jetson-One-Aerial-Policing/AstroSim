@@ -41,6 +41,7 @@ func (ExecCommander) Run(ctx context.Context, name string, args ...string) (Resu
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &stdout, &stderr
 	cmd.WaitDelay = killGrace
+	hideConsole(cmd)
 	err := cmd.Run()
 	res := Result{Stdout: stdout.String(), Stderr: stderr.String()}
 	if err == nil {

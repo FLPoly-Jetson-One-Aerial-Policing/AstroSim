@@ -58,7 +58,7 @@ var _ runtime.Runtime = (*Runtime)(nil)
 // New returns an empty fake runtime that reports itself as podman.
 func New() *Runtime {
 	return &Runtime{
-		info:       runtime.Info{Name: "podman", Path: "/fake/podman", Version: "0.0.0-fake"},
+		info:       runtime.Info{Name: "podman", Path: "/fake/podman", Version: "5.0.0-fake"},
 		images:     map[string]bool{},
 		networks:   map[string]bool{},
 		containers: map[string]*container{},
@@ -150,6 +150,14 @@ func (r *Runtime) exitLocked(name string, code int) bool {
 	c.state.FinishedAt = r.now()
 	close(c.finished)
 	return true
+}
+
+// SetVersion sets the version string Ping reports, to exercise the minimum
+// version check.
+func (r *Runtime) SetVersion(v string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.info.Version = v
 }
 
 // Info implements runtime.Runtime.

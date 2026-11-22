@@ -155,6 +155,23 @@ func TestRuntimeProblems(t *testing.T) {
 	}
 }
 
+func TestRuntimeTooOld(t *testing.T) {
+	rt := fake.New()
+	rt.SetVersion("3.4.4")
+	s, err := New(Options{Runtime: rt, Definitions: testDefs(), StackContext: component.DefaultStackContext(), Broadcaster: status.NewBroadcaster()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	rep := s.preflight(context.Background())
+	if rep.Problem != supervisor.ProblemRuntimeTooOld || rep.Detail != "podman 3.4.4 found; 4.0 or newer is required" {
+		t.Fatalf("got %+v", rep)
+	}
+	rt.SetVersion("4.9.4-rhel")
+	if rep := s.preflight(context.Background()); rep.Problem == supervisor.ProblemRuntimeTooOld {
+		t.Fatalf("4.9.4 flagged too old: %+v", rep)
+	}
+}
+
 func TestStartRunStop(t *testing.T) {
 	r := newRig(t, testDefs())
 	r.installImages()

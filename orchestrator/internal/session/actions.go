@@ -52,7 +52,13 @@ func (s *Session) doPreflight(gen uint64) {
 // preflight checks the runtime, then the images, then the host ports. It
 // reports the first class of problem found, so the user fixes one thing at a time.
 func (s *Session) preflight(ctx context.Context) supervisor.PreflightReport {
-	if _, err := s.opts.Runtime.Ping(ctx); err != nil {
+	info, err := s.opts.Runtime.Ping(ctx)
+	if err == nil {
+		if verr := runtime.CheckMinVersion(info, s.log); verr != nil {
+			return supervisor.PreflightReport{Problem: supervisor.ProblemRuntimeTooOld, Detail: verr.Error()}
+		}
+	}
+	if err != nil {
 		switch {
 		case errors.Is(err, runtime.ErrNotInstalled):
 			return supervisor.PreflightReport{Problem: supervisor.ProblemRuntimeMissing, Detail: err.Error()}
