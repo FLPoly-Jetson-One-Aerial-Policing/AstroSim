@@ -6,13 +6,16 @@ import (
 	"errors"
 	"log/slog"
 	"net"
+	"os"
 	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
 
+	"github.com/FLPoly-Jetson-One-Aerial-Policing/AstroSim/orchestrator/internal/config"
 	"github.com/FLPoly-Jetson-One-Aerial-Policing/AstroSim/orchestrator/internal/instance"
 	"github.com/FLPoly-Jetson-One-Aerial-Policing/AstroSim/orchestrator/internal/logging"
+	"github.com/FLPoly-Jetson-One-Aerial-Policing/AstroSim/orchestrator/internal/logs"
 	"github.com/FLPoly-Jetson-One-Aerial-Policing/AstroSim/orchestrator/internal/runtime"
 	"github.com/FLPoly-Jetson-One-Aerial-Policing/AstroSim/orchestrator/internal/runtime/fake"
 )
@@ -146,5 +149,195 @@ func TestRefuseCleanup(t *testing.T) {
 	code := refuseCleanup(path, &out, logging.New(&bytes.Buffer{}, slog.LevelInfo))
 	if code != exitFailure || out.String() != "AstroSim is running at http://127.0.0.1:8770; stop it before cleaning up\n" {
 		t.Errorf("code=%d out=%q", code, out.String())
+	}
+}
+
+func TestNewSessionID(t *testing.T) {
+	if id := newSessionID(); !logs.IsSessionName("20260102T030405Z-" + id) {
+		t.Errorf("session ID %q does not make a valid log folder name", id)
+	}
+}
+
+func TestLogRoot(t *testing.T) {
+	env := func(m map[string]string) func(string) string { return func(k string) string { return m[k] } }
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	abs, _ := filepath.Abs("rel/logs")
+	tests := []struct {
+		name string
+		goos string
+		dir  string
+		env  map[string]string
+		want string
+	}{
+		{"linux default", "linux", "", nil, filepath.Join(home, ".local/state/astrosim/logs")},
+		{"linux xdg", "linux", "", map[string]string{"XDG_STATE_HOME": "/state"}, "/state/astrosim/logs"},
+		{"darwin default", "darwin", "", nil, home + "/Library/Logs/AstroSim"},
+		{"windows default", "windows", "", map[string]string{"LOCALAPPDATA": `C:\Users\u\AppData\Local`}, `C:\Users\u\AppData\Local\AstroSim\logs`},
+		{"override", "linux", "/custom", nil, "/custom"},
+		{"relative override is made absolute", "darwin", "rel/logs", nil, abs},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := config.Defaults()
+			cfg.LogDir = tt.dir
+			got, err := logRoot(cfg, tt.goos, env(tt.env))
+			if err != nil || got != tt.want {
+				t.Errorf("logRoot = %q, %v; want %q", got, err, tt.want)
+			}
+		})
+	}
+}
+
+func TestPrintLogDir(t *testing.T) {
+	state := t.TempDir()
+	cfgFile := filepath.Join(t.TempDir(), "c.json")
+	if err := os.WriteFile(cfgFile, []byte(`{"logDir":"/from/json"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	tests := []struct {
+		name string
+		args []string
+		env  map[string]string
+		want string
+	}{
+		{"default", nil, map[string]string{"XDG_STATE_HOME": state}, filepath.Join(state, "astrosim", "logs")},
+		{"json", []string{"--config", cfgFile}, nil, "/from/json"},
+		{"env beats json", []string{"--config", cfgFile}, map[string]string{"ASTROSIM_ORCH_LOG_DIR": "/from/env"}, "/from/env"},
+		{"flag beats env", []string{"--log-dir", "/from/flag"}, map[string]string{"ASTROSIM_ORCH_LOG_DIR": "/from/env"}, "/from/flag"},
+		{"flag with equals", []string{"--log-dir=/from/flag"}, nil, "/from/flag"},
+		// Nothing else is checked or run: an invalid setting does not matter.
+		{"wins over validation", []string{"--restart-max=0", "--autostart", "--cleanup"}, map[string]string{"XDG_STATE_HOME": state},
+			filepath.Join(state, "astrosim", "logs")},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var out, errb bytes.Buffer
+			env := func(k string) string { return tt.env[k] }
+			code := run(append([]string{"--print-log-dir"}, tt.args...), env, &out, &errb)
+			if code != exitOK || out.String() != tt.want+"\n" || errb.Len() != 0 {
+				t.Errorf("code=%d out=%q err=%q, want %q", code, out.String(), errb.String(), tt.want)
+			}
+		})
+	}
+	if _, err := os.Stat(filepath.Join(state, "astrosim")); err == nil {
+		t.Error("--print-log-dir created the directory")
+	}
+}
+
+// newRecorder opens a recorder under root and writes a line to it.
+func newRecorder(t *testing.T, root, id string) *logs.Recorder {
+	t.Helper()
+	rec, err := logs.Open(logs.Options{Root: root, SessionID: id, Version: "test", Source: fake.New()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	rec.Note("fc", "hello")
+	return rec
+}
+
+func zipsIn(t *testing.T, root string) (zips, folders []string) {
+	t.Helper()
+	es, err := os.ReadDir(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range es {
+		if e.IsDir() {
+			folders = append(folders, e.Name())
+		} else if strings.HasSuffix(e.Name(), ".zip") {
+			zips = append(zips, e.Name())
+		}
+	}
+	return
+}
+
+func TestFinishLogsArchivesTheSession(t *testing.T) {
+	root := t.TempDir()
+	// An old archive beyond the keep limit goes after the new one is written.
+	old := filepath.Join(root, "20200101T000000Z-0000000000000001.zip")
+	if err := os.WriteFile(old, []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	rec := newRecorder(t, root, "0123456789abcdef")
+	recovered := make(chan struct{})
+	close(recovered)
+	cfg := config.Defaults()
+	cfg.LogKeep = 1
+	var errb bytes.Buffer
+	finishLogs(rec, recovered, cfg, &errb, logging.New(&errb, slog.LevelInfo))
+
+	zips, folders := zipsIn(t, root)
+	if len(zips) != 1 || len(folders) != 0 || zips[0] != rec.Name()+".zip" {
+		t.Fatalf("zips %v folders %v", zips, folders)
+	}
+	if !strings.Contains(errb.String(), "logs saved to "+filepath.Join(root, rec.Name()+".zip")) {
+		t.Errorf("stderr = %q", errb.String())
+	}
+}
+
+func TestRecoverLogsSkipsTheLiveSession(t *testing.T) {
+	root := t.TempDir()
+	stray := newRecorder(t, root, "aaaaaaaaaaaaaaaa")
+	if err := stray.Close(context.Background()); err != nil { // as if killed after its files were flushed
+		t.Fatal(err)
+	}
+	live := newRecorder(t, root, "bbbbbbbbbbbbbbbb")
+	defer live.Close(context.Background())
+	var errb bytes.Buffer
+	recoverLogs(root, live.Name(), config.Defaults(), logging.New(&errb, slog.LevelInfo))
+	zips, folders := zipsIn(t, root)
+	if len(zips) != 1 || zips[0] != stray.Name()+".zip" || len(folders) != 1 || folders[0] != live.Name() {
+		t.Fatalf("zips %v folders %v", zips, folders)
+	}
+}
+
+func TestArchiveStrayLogsForPrune(t *testing.T) {
+	root := t.TempDir()
+	a := newRecorder(t, root, "aaaaaaaaaaaaaaaa")
+	if err := a.Close(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	var out, errb bytes.Buffer
+	if !archiveStrayLogs(root, &out, logging.New(&errb, slog.LevelInfo)) {
+		t.Fatalf("failed: %s", errb.String())
+	}
+	zips, folders := zipsIn(t, root)
+	if len(zips) != 1 || len(folders) != 0 || !strings.HasPrefix(out.String(), "archived logs ") {
+		t.Errorf("zips %v folders %v out %q", zips, folders, out.String())
+	}
+	// A second prune finds nothing and deletes nothing.
+	out.Reset()
+	archiveStrayLogs(root, &out, logging.New(&errb, slog.LevelInfo))
+	if zips2, _ := zipsIn(t, root); len(zips2) != 1 || out.Len() != 0 {
+		t.Errorf("second prune: zips %v out %q", zips2, out.String())
+	}
+}
+
+func TestSessionLogsAdapter(t *testing.T) {
+	if logCapture(nil) != nil {
+		t.Error("no recorder must mean no capture")
+	}
+	rt := fake.New()
+	rt.SetImage("img", true)
+	root := t.TempDir()
+	rec, err := logs.Open(logs.Options{Root: root, SessionID: "0123456789abcdef", Version: "t", Source: rt})
+	if err != nil {
+		t.Fatal(err)
+	}
+	lc := logCapture(rec)
+	id, _ := rt.Run(context.Background(), runtime.RunSpec{Name: "astrosim-fc", Image: "img"})
+	c := lc.Begin("fc", 2, "astrosim-fc", id, "img")
+	lc.Note("fc", "exited code=1")
+	rt.Exit("astrosim-fc", 1)
+	c.Drain(context.Background())
+	if err := rec.Close(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	b, err := os.ReadFile(filepath.Join(rec.Dir(), "fc.log"))
+	if err != nil || !strings.Contains(string(b), "==== launch gen=2 container=astrosim-fc") ||
+		!strings.Contains(string(b), "==== exited code=1 ====") {
+		t.Errorf("fc.log = %q, %v", b, err)
 	}
 }
