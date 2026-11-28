@@ -19,7 +19,7 @@ published and downloads them itself.
 1. Install Podman or Docker, and download and unpack the `astrosim` archive for your system.
 2. Run `astrosim` (or `astrosim.exe`). The dashboard opens in your browser at `http://127.0.0.1:8770`. The first
    time, and again for each new version, it downloads the simulator (several GB) before you can press **Start**; the
-   page shows the progress and has a **Cancel download** button. See [Images and downloads](#images-and-downloads).
+   page shows the download and has a **Cancel download** button. See [Images and downloads](#images-and-downloads).
 3. Press **Start**.
 
 **From source.** A development build uses images you build yourself, and never downloads anything.
@@ -134,8 +134,8 @@ are missing; present images are not checked for newer versions, because a tag na
 nothing is downloaded: missing images are reported, and the dashboard shows the `podman pull` command to run by hand.
 
 **What the dashboard shows.** The status is `downloading`, the button reads **Cancel download**, and each part being
-fetched has a *Downloading* badge, a moving bar, the time elapsed and the latest line the runtime printed. The bar
-does not fill up, because Podman and Docker print no byte counts when they are not on a terminal, and a layer count
+fetched has a spinning *Downloading* badge, the time elapsed and the latest line the runtime printed. There is no
+progress bar, because Podman and Docker print no byte counts when they are not on a terminal, and a layer count
 would mislead (one layer of the engine image is most of its size). When an image has arrived its badge says
 *Downloaded*; when all have, the stack is checked again and, if you pressed Start, started.
 

@@ -53,7 +53,7 @@ const TEXT = {
   button: { start: "Start", stop: "Stop", cancel: "Cancel download", wait: "Please wait", busy: "Working…" },
   notInstalledNote: "Run this in the AstroSim folder",
   pullNote: "Or download it yourself by running this in a terminal",
-  // Download progress of one part: badge labels and the line under the bar.
+  // Download progress of one part: badge labels and the line under the badge.
   download: {
     active: "Downloading",
     done: "Downloaded",
@@ -181,14 +181,11 @@ function downloadBadge(d) {
     spinner(), el("span", {}, TEXT.download.active));
 }
 
-// The progress bar and the line under it; the bar has no value because the
-// runtime does not report how many bytes are done.
-function downloadProgress(d) {
+// The line under a downloading component: time elapsed and the runtime's
+// latest output.
+function downloadLine(d) {
   const line = [TEXT.download.elapsed(clock(d.elapsedSeconds)), d.output].filter(Boolean).join(" · ");
-  return [
-    el("progress", { "aria-label": TEXT.download.active }),
-    el("p", { class: "download" }, line),
-  ];
+  return el("p", { class: "download" }, line);
 }
 
 function renderComponents(s) {
@@ -203,7 +200,7 @@ function renderComponents(s) {
       ),
       el("p", { class: "comp-desc" }, c.description),
     );
-    if (c.download && c.download.state === "downloading") li.append(...downloadProgress(c.download));
+    if (c.download && c.download.state === "downloading") li.append(downloadLine(c.download));
     if (c.facts && c.facts.length) {
       const dl = el("dl", { class: "facts" });
       for (const f of c.facts) dl.append(el("dt", {}, f.label), el("dd", {}, f.value));
