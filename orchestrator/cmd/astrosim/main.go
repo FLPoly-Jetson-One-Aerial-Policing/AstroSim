@@ -27,6 +27,7 @@ import (
 
 	"github.com/FLPoly-Jetson-One-Aerial-Policing/AstroSim/orchestrator/internal/api"
 	"github.com/FLPoly-Jetson-One-Aerial-Policing/AstroSim/orchestrator/internal/browser"
+	"github.com/FLPoly-Jetson-One-Aerial-Policing/AstroSim/orchestrator/internal/component"
 	"github.com/FLPoly-Jetson-One-Aerial-Policing/AstroSim/orchestrator/internal/components"
 	"github.com/FLPoly-Jetson-One-Aerial-Policing/AstroSim/orchestrator/internal/config"
 	"github.com/FLPoly-Jetson-One-Aerial-Policing/AstroSim/orchestrator/internal/instance"
@@ -59,6 +60,58 @@ func main() {
 	os.Exit(run(os.Args[1:], os.Getenv, os.Stdout, os.Stderr))
 }
 
+// releaseImages returns the image settings this binary was built with.
+func releaseImages() components.Images {
+	return components.Images{Repository: imageRepository, Tag: imageTag}
+}
+
+// buildError reports image settings baked into the binary at build time that
+// cannot be used. It is a defect of the build, not of the user's
+// configuration, so it exits differently from a usage error.
+type buildError struct{ err error }
+
+func (e *buildError) Error() string {
+	return "this build's image settings are invalid: " + e.err.Error()
+}
+
+func (e *buildError) Unwrap() error { return e.err }
+
+// componentDefs returns the component definitions for this run: the built-in
+// ones with the build's image references applied, checked against cfg. The
+// per-component overrides of cfg are not applied here (see
+// config.Config.ApplyOverrides), so a "components.<id>.image" setting still
+// wins over the release image. A broken build is a *buildError; any other
+// error comes from cfg.Validate.
+func componentDefs(cfg config.Config, im components.Images) ([]component.Definition, error) {
+	if err := im.Validate(); err != nil {
+		return nil, &buildError{err}
+	}
+	defs := im.Apply(components.All())
+	if err := cfg.Validate(goruntime.GOOS, defs); err != nil {
+		return nil, err
+	}
+	return defs, nil
+}
+
+// versionText is the output of --version: "astrosim <version>", and for a
+// release build a second line "images <engine image> <fc image>" naming the
+// images it downloads (scripts read it). A development build prints only the
+// first line.
+func versionText(im components.Images) (string, error) {
+	if err := im.Validate(); err != nil {
+		return "", &buildError{err}
+	}
+	text := fmt.Sprintf("astrosim %s\n", version)
+	if im.Release() {
+		refs := []string{"images"}
+		for _, d := range im.Apply(components.All()) {
+			refs = append(refs, d.Image)
+		}
+		text += strings.Join(refs, " ") + "\n"
+	}
+	return text, nil
+}
+
 // run is main without the process-global parts, and returns the exit code.
 func run(args []string, getenv func(string) string, stdout, stderr io.Writer) int {
 	cfg, err := config.LoadTo(stderr, args, getenv, os.ReadFile)
@@ -81,12 +134,23 @@ func run(args []string, getenv func(string) string, stdout, stderr io.Writer) in
 		fmt.Fprintln(stdout, root)
 		return exitOK
 	}
+	images := releaseImages()
 	if cfg.ShowVersion {
-		fmt.Fprintf(stdout, "astrosim %s\n", version)
+		text, err := versionText(images)
+		if err != nil {
+			fmt.Fprintf(stderr, "astrosim: %v\n", err)
+			return exitFailure
+		}
+		fmt.Fprint(stdout, text)
 		return exitOK
 	}
-	defs := components.All()
-	if err := cfg.Validate(goruntime.GOOS, defs); err != nil {
+	defs, err := componentDefs(cfg, images)
+	var broken *buildError
+	if errors.As(err, &broken) {
+		fmt.Fprintf(stderr, "astrosim: %v\n", broken)
+		return exitFailure
+	}
+	if err != nil {
 		fmt.Fprintf(stderr, "astrosim: invalid configuration:\n%s\nRun \"astrosim --help\" for usage.\n", indent(err.Error()))
 		return exitUsage
 	}
@@ -152,6 +216,9 @@ func run(args []string, getenv func(string) string, stdout, stderr io.Writer) in
 	}
 	if rootErr != nil {
 		log.Warn("session logs are not being saved to files", "err", rootErr)
+	}
+	if images.Release() {
+		log.Info("release build", "repository", images.Repository, "tag", images.Tag)
 	}
 	recovered := make(chan struct{})
 	if rec != nil {

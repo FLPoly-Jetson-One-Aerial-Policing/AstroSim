@@ -12,6 +12,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/FLPoly-Jetson-One-Aerial-Policing/AstroSim/orchestrator/internal/component"
+	"github.com/FLPoly-Jetson-One-Aerial-Policing/AstroSim/orchestrator/internal/components"
 	"github.com/FLPoly-Jetson-One-Aerial-Policing/AstroSim/orchestrator/internal/config"
 	"github.com/FLPoly-Jetson-One-Aerial-Policing/AstroSim/orchestrator/internal/instance"
 	"github.com/FLPoly-Jetson-One-Aerial-Policing/AstroSim/orchestrator/internal/logging"
@@ -340,4 +342,95 @@ func TestSessionLogsAdapter(t *testing.T) {
 		!strings.Contains(string(b), "==== exited code=1 ====") {
 		t.Errorf("fc.log = %q, %v", b, err)
 	}
+}
+
+// setImages sets the build-time image variables for one test.
+func setImages(t *testing.T, repository, tag string) {
+	t.Helper()
+	oldRepo, oldTag := imageRepository, imageTag
+	imageRepository, imageTag = repository, tag
+	t.Cleanup(func() { imageRepository, imageTag = oldRepo, oldTag })
+}
+
+func TestVersionDevHasOneLine(t *testing.T) {
+	setImages(t, "", "")
+	var out, errb strings.Builder
+	if code := run([]string{"--version"}, func(string) string { return "" }, &out, &errb); code != 0 || out.String() != "astrosim dev\n" {
+		t.Errorf("--version: %d %q", code, out.String())
+	}
+}
+
+func TestVersionReleaseListsImages(t *testing.T) {
+	setImages(t, "ghcr.io/flpoly-jetson-one-aerial-policing", "0.1.0")
+	var out, errb strings.Builder
+	code := run([]string{"--version"}, func(string) string { return "" }, &out, &errb)
+	want := "astrosim dev\nimages ghcr.io/flpoly-jetson-one-aerial-policing/astrosim-engine:0.1.0 " +
+		"ghcr.io/flpoly-jetson-one-aerial-policing/astrosim-fc:0.1.0\n"
+	if code != 0 || out.String() != want {
+		t.Errorf("--version: %d %q, want %q", code, out.String(), want)
+	}
+}
+
+func TestBrokenBuildImagesExitFailure(t *testing.T) {
+	setImages(t, "ghcr.io/o", "")
+	for _, args := range [][]string{{"--version"}, {}} {
+		var out, errb strings.Builder
+		code := run(args, func(string) string { return "" }, &out, &errb)
+		if code != exitFailure || !strings.Contains(errb.String(), "this build's image settings are invalid") {
+			t.Errorf("%v: code %d, stderr %q", args, code, errb.String())
+		}
+	}
+}
+
+func TestComponentDefs(t *testing.T) {
+	release := components.Images{Repository: "ghcr.io/o", Tag: "1"}
+	imageOf := func(defs []component.Definition, id string) string {
+		for _, d := range defs {
+			if d.ID == id {
+				return d.Image
+			}
+		}
+		return ""
+	}
+
+	t.Run("dev", func(t *testing.T) {
+		defs, err := componentDefs(config.Defaults(), components.Images{})
+		if err != nil || imageOf(defs, "engine") != "astrosim-engine" {
+			t.Errorf("defs = %v, err = %v", defs, err)
+		}
+	})
+	t.Run("release", func(t *testing.T) {
+		defs, err := componentDefs(config.Defaults(), release)
+		if err != nil || imageOf(defs, "engine") != "ghcr.io/o/astrosim-engine:1" || imageOf(defs, "fc") != "ghcr.io/o/astrosim-fc:1" {
+			t.Errorf("defs = %v, err = %v", defs, err)
+		}
+	})
+	t.Run("json image override wins", func(t *testing.T) {
+		cfg := config.Defaults()
+		cfg.Components = map[string]config.ComponentOverride{"engine": {Image: "localhost/astrosim-engine:dev"}}
+		defs, err := componentDefs(cfg, release)
+		if err != nil {
+			t.Fatal(err)
+		}
+		got := cfg.ApplyOverrides(defs)
+		if imageOf(got, "engine") != "localhost/astrosim-engine:dev" || imageOf(got, "fc") != "ghcr.io/o/astrosim-fc:1" {
+			t.Errorf("images = %q, %q", imageOf(got, "engine"), imageOf(got, "fc"))
+		}
+	})
+	t.Run("broken build", func(t *testing.T) {
+		_, err := componentDefs(config.Defaults(), components.Images{Tag: "1"})
+		var be *buildError
+		if !errors.As(err, &be) {
+			t.Errorf("err = %v, want a *buildError", err)
+		}
+	})
+	t.Run("invalid configuration", func(t *testing.T) {
+		cfg := config.Defaults()
+		cfg.Components = map[string]config.ComponentOverride{"nope": {}}
+		_, err := componentDefs(cfg, release)
+		var be *buildError
+		if err == nil || errors.As(err, &be) {
+			t.Errorf("err = %v, want a configuration error", err)
+		}
+	})
 }

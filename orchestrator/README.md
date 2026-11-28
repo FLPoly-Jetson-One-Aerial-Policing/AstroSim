@@ -330,8 +330,17 @@ Everything is built and tested in a container, from the repository root (the tes
 
 ```sh
 orchestrator/build.sh          # binaries in build/orchestrator/
-orchestrator/build.sh --test   # gofmt, go vet and go test -race only
+orchestrator/build.sh --test   # gofmt, go vet, staticcheck and go test -race only
 ```
+
+A plain build is a development build: the components use the locally built `astrosim-engine` and `astrosim-fc`
+images, which are never downloaded. A release build also names the registry its images are published in. Set both
+`ASTROSIM_IMAGE_REPOSITORY` (for example `ghcr.io/flpoly-jetson-one-aerial-policing`, lowercase) and
+`ASTROSIM_IMAGE_TAG` (for example `0.1.0`), or neither; `build.sh` refuses only one. They become the `IMAGE_REPOSITORY`
+and `IMAGE_TAG` build arguments of `build.Dockerfile`, and the binary then uses
+`<repository>/astrosim-engine:<tag>` and `<repository>/astrosim-fc:<tag>`. `astrosim --version` prints a second line,
+`images <engine image> <fc image>`, for release builds only. A `components.<id>.image` setting in the JSON file still
+overrides the image. `ASTROSIM_VERSION` replaces the `git describe` version the binary reports.
 
 `build.sh` produces `astrosim-{linux,darwin}-{amd64,arm64}` and `astrosim-windows-amd64.exe`; building every target
 catches platform-specific code outside build-tagged files. It also copies this machine's binary to

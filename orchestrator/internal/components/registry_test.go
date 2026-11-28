@@ -2,9 +2,11 @@ package components
 
 import (
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/FLPoly-Jetson-One-Aerial-Policing/AstroSim/orchestrator/internal/component"
+	"github.com/FLPoly-Jetson-One-Aerial-Policing/AstroSim/orchestrator/internal/runtime"
 	"github.com/FLPoly-Jetson-One-Aerial-Policing/AstroSim/orchestrator/internal/supervisor"
 )
 
@@ -68,6 +70,20 @@ func TestBuildHintsMentionRuntimePlaceholder(t *testing.T) {
 	for _, d := range All() {
 		if d.BuildHint == "" || d.DisplayName == "" || d.Description == "" {
 			t.Errorf("%s: incomplete presentation fields", d.ID)
+		}
+	}
+}
+
+// TestBuiltInImagesAreNotPullable guards the development default: the
+// built-in image names are bare, so the orchestrator never tries to download
+// them (which could only reach docker.io).
+func TestBuiltInImagesAreNotPullable(t *testing.T) {
+	for _, d := range All() {
+		if runtime.Pullable(d.Image) {
+			t.Errorf("%s: built-in image %q is pullable", d.ID, d.Image)
+		}
+		if strings.ContainsAny(d.Image, "/:") {
+			t.Errorf("%s: built-in image %q is not a bare name", d.ID, d.Image)
 		}
 	}
 }
