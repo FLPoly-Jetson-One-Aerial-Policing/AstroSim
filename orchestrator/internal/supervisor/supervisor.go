@@ -3,6 +3,7 @@ package supervisor
 import (
 	"fmt"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/FLPoly-Jetson-One-Aerial-Policing/AstroSim/orchestrator/internal/component"
@@ -61,6 +62,12 @@ type Supervisor struct {
 	preflightGen    uint64
 	awaitPreflight  bool
 	startAfterCheck bool
+	pullGen         uint64
+	awaitPull       bool
+	pullHold        bool   // a download failed; wait for TimerPullRetry before the next
+	pullFailures    int    // consecutive failed downloads
+	pullReason      Reason // why the last download failed
+	pulled          bool   // the check in flight follows a successful download
 	shuttingDown    bool
 	exited          bool
 
@@ -104,7 +111,7 @@ func (s *Supervisor) Snapshot() State {
 		MaxAttempts: s.policy.MaxAttempts,
 		CanStart:    !s.shuttingDown && (s.phase == PhaseStopped || s.phase == PhaseFailed),
 		CanStop: !s.shuttingDown && (s.phase == PhaseStarting || s.phase == PhaseRunning ||
-			s.phase == PhaseRecovering || s.phase == PhaseUnavailable ||
+			s.phase == PhaseRecovering || s.phase == PhaseUnavailable || s.phase == PhaseDownloading ||
 			(s.phase == PhaseChecking && s.startAfterCheck)),
 	}
 	for _, n := range s.failures {
@@ -136,6 +143,7 @@ func (s *Supervisor) Step(ev Event, now time.Time) []Action {
 	switch ev.Kind {
 	case StartRequested:
 		if s.phase == PhaseStopped || s.phase == PhaseFailed {
+			s.pullHold = false // an explicit retry
 			s.startAfterCheck = true
 			s.beginCheck()
 		}
@@ -150,6 +158,8 @@ func (s *Supervisor) Step(ev Event, now time.Time) []Action {
 		s.onShutdown()
 	case PreflightDone:
 		s.onPreflightDone(ev)
+	case PullDone:
+		s.onPullDone(ev)
 	case Launched:
 		if c := s.current(ev); c != nil && c.state == ComponentLaunching {
 			c.state = ComponentStarting
@@ -232,6 +242,34 @@ func (s *Supervisor) onPreflightDone(ev Event) {
 	}
 	s.awaitPreflight = false
 	s.preflight = ev.Report
+	pulled := s.pulled
+	s.pulled = false
+	if len(ev.Report.Pullable) > 0 {
+		switch {
+		case pulled:
+			// The download succeeded but the image is still missing:
+			// treat it as a failed download rather than looping.
+			s.pullFailed(Reason{Code: ProblemPullFailed,
+				Detail: "the image is still missing after it was downloaded: " + strings.Join(ev.Report.Pullable, ", ")})
+		case s.pullHold:
+			s.startAfterCheck = false
+			s.reason = s.pullReason
+			s.setPhase(PhaseUnavailable)
+			s.armTimer(TimerRecheck, "", RecheckInterval)
+		default:
+			s.cancelTimers(TimerRecheck)
+			s.cancelTimers(TimerPullRetry)
+			s.reason = Reason{}
+			s.pullGen++
+			s.awaitPull = true
+			s.setPhase(PhaseDownloading)
+			s.emit(Action{Kind: ActionPull, Gen: s.pullGen, Images: slices.Clone(ev.Report.Pullable)})
+		}
+		return
+	}
+	if pulled {
+		s.pullFailures = 0
+	}
 	if ev.Report.Problem != "" {
 		s.startAfterCheck = false
 		s.reason = Reason{Code: ev.Report.Problem, Detail: ev.Report.Detail}
@@ -240,12 +278,43 @@ func (s *Supervisor) onPreflightDone(ev Event) {
 		return
 	}
 	s.reason = Reason{}
+	s.pullHold, s.pullFailures = false, 0
 	if s.phase == PhaseChecking && s.startAfterCheck {
 		s.startAfterCheck = false
 		s.startAll()
 		return
 	}
 	s.setPhase(PhaseStopped)
+}
+
+// onPullDone ends a download: success re-checks, failure holds the next
+// attempt back for a backoff.
+func (s *Supervisor) onPullDone(ev Event) {
+	if !s.awaitPull || ev.Gen != s.pullGen {
+		return
+	}
+	s.awaitPull = false
+	if ev.Report.Problem == "" {
+		s.pulled = true
+		s.beginCheck()
+		return
+	}
+	s.pullFailed(Reason{Code: ev.Report.Problem, Detail: ev.Report.Detail})
+}
+
+// pullFailed records a failed download: the stack becomes unavailable with
+// the pull reason, rechecks go on without downloading, and a retry timer
+// ends the hold after the backoff.
+func (s *Supervisor) pullFailed(r Reason) {
+	s.pullFailures++
+	s.pullHold = true
+	s.pullReason = r
+	s.startAfterCheck = false
+	s.reason = r
+	s.setPhase(PhaseUnavailable)
+	s.armTimer(TimerRecheck, "", RecheckInterval)
+	b := PullBackoff
+	s.armTimer(TimerPullRetry, "", b[min(s.pullFailures, len(b))-1])
 }
 
 // --- starting ---------------------------------------------------------
@@ -401,6 +470,7 @@ func (s *Supervisor) cancelAll() {
 	clear(s.recGroups)
 	clear(s.wanted)
 	s.awaitPreflight = false
+	s.pulled = false
 }
 
 // --- stopping ---------------------------------------------------------
@@ -409,7 +479,15 @@ func (s *Supervisor) onStop() {
 	switch s.phase {
 	case PhaseUnavailable:
 		s.cancelAll()
+		s.pullHold, s.pullFailures = false, 0
 		s.reason = Reason{}
+		s.setPhase(PhaseStopped)
+	case PhaseDownloading:
+		s.cancelPull()
+		s.cancelAll()
+		s.startAfterCheck = false
+		s.pullHold, s.pullFailures = false, 0
+		s.reason = Reason{Code: ReasonPullCancelled}
 		s.setPhase(PhaseStopped)
 	case PhaseChecking:
 		if s.startAfterCheck {
@@ -435,6 +513,7 @@ func (s *Supervisor) onShutdown() {
 	}
 	s.shuttingDown = true
 	s.startAfterCheck = false
+	s.cancelPull()
 	s.purpose, s.parallel, s.captureLogs = purposeShutdown, true, false
 	s.cancelAll()
 	for _, id := range s.plan.order {
@@ -444,6 +523,14 @@ func (s *Supervisor) onShutdown() {
 		s.setPhase(PhaseStopping)
 	}
 	s.advanceTeardown()
+}
+
+// cancelPull aborts the download in flight, if any.
+func (s *Supervisor) cancelPull() {
+	if s.awaitPull {
+		s.awaitPull = false
+		s.emit(Action{Kind: ActionCancelPull, Gen: s.pullGen})
+	}
 }
 
 func (s *Supervisor) needsTeardown() bool {
@@ -553,6 +640,13 @@ func (s *Supervisor) onTimer(ev Event) {
 	case TimerRecheck:
 		if s.phase == PhaseUnavailable {
 			s.requestPreflight()
+		}
+	case TimerPullRetry:
+		if s.phase == PhaseUnavailable {
+			s.pullHold = false
+			if !s.awaitPreflight {
+				s.requestPreflight()
+			}
 		}
 	case TimerStable:
 		s.failures[ev.Key] = 0

@@ -67,8 +67,12 @@ func fmtAction(a Action) string {
 	case ActionTeardown:
 		return fmt.Sprintf("teardown:%s#%d:%s:logs=%v", a.Component, a.Gen, a.Reason, a.CaptureLogs)
 	case ActionSetTimer:
-		kind := map[TimerKind]string{TimerReadyTimeout: "ready", TimerBackoff: "backoff", TimerStable: "stable", TimerRecheck: "recheck"}[a.Timer]
+		kind := map[TimerKind]string{TimerReadyTimeout: "ready", TimerBackoff: "backoff", TimerStable: "stable", TimerRecheck: "recheck", TimerPullRetry: "pullretry"}[a.Timer]
 		return fmt.Sprintf("timer:%s:%s@%s", kind, a.Key, a.After)
+	case ActionPull:
+		return fmt.Sprintf("pull#%d:%s", a.Gen, strings.Join(a.Images, ","))
+	case ActionCancelPull:
+		return fmt.Sprintf("cancel-pull#%d", a.Gen)
 	case ActionExit:
 		return fmt.Sprintf("exit:%d", a.Code)
 	}
@@ -856,4 +860,239 @@ func TestUnlimitedStopDuringBackoff(t *testing.T) {
 	r.phase(PhaseStopped)
 	r.want(r.timer(TimerBackoff, "group:gb", gen))
 	r.phase(PhaseStopped)
+}
+
+// missingReport is a preflight report with one downloadable image.
+func missingReport(pullable []string, all ...string) PreflightReport {
+	if all == nil {
+		all = pullable
+	}
+	return PreflightReport{Problem: ProblemImagesMissing, MissingImages: all, Pullable: pullable, Detail: "missing"}
+}
+
+func pullFail(gen uint64, problem string) Event {
+	return Event{Kind: PullDone, Gen: gen, Report: PreflightReport{Problem: problem, Detail: "boom"}}
+}
+
+func TestPullOnStartupCheck(t *testing.T) {
+	r := newRig(t, chainDefs(), DefaultRestartPolicy)
+	r.want(r.step(Event{Kind: CheckRequested}), "preflight#1")
+	r.want(r.step(Event{Kind: PreflightDone, Gen: 1, Report: missingReport([]string{"img-a", "img-b"})}), "pull#1:img-a,img-b")
+	r.phase(PhaseDownloading)
+	st := r.s.Snapshot()
+	if st.Reason.Code != "" || st.CanStart || !st.CanStop {
+		t.Fatalf("downloading: reason %+v CanStart/CanStop = %v/%v", st.Reason, st.CanStart, st.CanStop)
+	}
+	r.want(r.step(Event{Kind: PullDone, Gen: 1}), "preflight#2")
+	r.phase(PhaseChecking)
+	r.want(r.step(Event{Kind: PreflightDone, Gen: 2}))
+	r.phase(PhaseStopped) // a pure check never launches
+	if r.s.Snapshot().Reason.Code != "" {
+		t.Fatalf("reason = %+v", r.s.Snapshot().Reason)
+	}
+}
+
+func TestPullThenStartAfterStart(t *testing.T) {
+	r := newRig(t, chainDefs(), DefaultRestartPolicy)
+	r.step(Event{Kind: StartRequested})
+	r.want(r.step(Event{Kind: PreflightDone, Gen: 1, Report: missingReport([]string{"img-a"})}), "pull#1:img-a")
+	r.want(r.step(Event{Kind: PullDone, Gen: 1}), "preflight#2")
+	r.want(r.step(Event{Kind: PreflightDone, Gen: 2}), "launch:a#1", "timer:ready:a@30s")
+	r.phase(PhaseStarting)
+}
+
+func TestPullMixedPullable(t *testing.T) {
+	r := newRig(t, chainDefs(), DefaultRestartPolicy)
+	r.step(Event{Kind: StartRequested})
+	r.want(r.step(Event{Kind: PreflightDone, Gen: 1, Report: missingReport([]string{"img-a"}, "img-a", "img-b")}), "pull#1:img-a")
+	r.want(r.step(Event{Kind: PullDone, Gen: 1}), "preflight#2")
+	r.want(r.step(Event{Kind: PreflightDone, Gen: 2, Report: missingReport(nil, "img-b")}), "timer:recheck:@5s")
+	r.phase(PhaseUnavailable)
+	if r.s.Snapshot().Reason.Code != ProblemImagesMissing {
+		t.Fatalf("reason = %+v", r.s.Snapshot().Reason)
+	}
+	// Nothing is downloadable: no further pull and the failure count is reset.
+	if r.s.pullFailures != 0 {
+		t.Fatalf("pullFailures = %d", r.s.pullFailures)
+	}
+}
+
+func TestPullFailureHoldAndBackoff(t *testing.T) {
+	r := newRig(t, chainDefs(), DefaultRestartPolicy)
+	r.step(Event{Kind: StartRequested})
+	r.step(Event{Kind: PreflightDone, Gen: 1, Report: missingReport([]string{"img-a"})})
+	acts, got := r.stepRaw(pullFail(1, ProblemPullNetwork))
+	r.want(got, "timer:recheck:@5s", "timer:pullretry:@15s")
+	r.phase(PhaseUnavailable)
+	st := r.s.Snapshot()
+	if st.Reason.Code != ProblemPullNetwork || st.Reason.Detail != "boom" || st.CanStart || !st.CanStop {
+		t.Fatalf("state = %+v", st)
+	}
+	recheck, retry := lastTimerGen(acts, TimerRecheck, ""), lastTimerGen(acts, TimerPullRetry, "")
+
+	// A recheck during the hold does not download and keeps the pull reason.
+	r.want(r.timer(TimerRecheck, "", recheck), "preflight#2")
+	acts, got = r.stepRaw(Event{Kind: PreflightDone, Gen: 2, Report: missingReport([]string{"img-a"})})
+	r.want(got, "timer:recheck:@5s")
+	if r.s.Snapshot().Reason.Code != ProblemPullNetwork {
+		t.Fatalf("reason = %+v", r.s.Snapshot().Reason)
+	}
+	recheck = lastTimerGen(acts, TimerRecheck, "")
+
+	// A recheck that finds a runtime problem replaces the pull reason.
+	r.timer(TimerRecheck, "", recheck)
+	acts, _ = r.stepRaw(Event{Kind: PreflightDone, Gen: 3, Report: PreflightReport{Problem: ProblemRuntimeNotRunning}})
+	if r.s.Snapshot().Reason.Code != ProblemRuntimeNotRunning {
+		t.Fatalf("reason = %+v", r.s.Snapshot().Reason)
+	}
+	recheck = lastTimerGen(acts, TimerRecheck, "")
+
+	// The retry timer ends the hold; the check it starts downloads.
+	r.want(r.timer(TimerPullRetry, "", 999)) // stale
+	r.want(r.timer(TimerPullRetry, "", retry), "preflight#4")
+	r.phase(PhaseUnavailable)
+	r.want(r.timer(TimerPullRetry, "", retry)) // consumed
+	r.want(r.step(Event{Kind: PreflightDone, Gen: 4, Report: missingReport([]string{"img-a"})}), "pull#2:img-a")
+	r.phase(PhaseDownloading)
+	// Timers armed before the download are stale now.
+	r.want(r.timer(TimerRecheck, "", recheck))
+	r.phase(PhaseDownloading)
+
+	// The second failure waits 30 s, the third a minute.
+	acts, got = r.stepRaw(pullFail(2, ProblemPullFailed))
+	r.want(got, "timer:recheck:@5s", "timer:pullretry:@30s")
+	retry = lastTimerGen(acts, TimerPullRetry, "")
+	r.timer(TimerPullRetry, "", retry)
+	r.step(Event{Kind: PreflightDone, Gen: 5, Report: missingReport([]string{"img-a"})})
+	_, got = r.stepRaw(pullFail(3, ProblemPullDenied))
+	r.want(got, "timer:recheck:@5s", "timer:pullretry:@1m0s")
+	if r.s.Snapshot().Reason.Code != ProblemPullDenied {
+		t.Fatalf("reason = %+v", r.s.Snapshot().Reason)
+	}
+
+	// A download that succeeds but leaves the image missing counts as one more failure.
+	retry = r.s.timers[timerKey{TimerPullRetry, ""}]
+	r.timer(TimerPullRetry, "", retry)
+	r.step(Event{Kind: PreflightDone, Gen: 6, Report: missingReport([]string{"img-a"})})
+	r.want(r.step(Event{Kind: PullDone, Gen: 4}), "preflight#7")
+	r.step(Event{Kind: PreflightDone, Gen: 7, Report: missingReport([]string{"img-a"})}) // pulled but still missing: failure
+	r.phase(PhaseUnavailable)
+	if r.s.Snapshot().Reason.Code != ProblemPullFailed {
+		t.Fatalf("reason = %+v", r.s.Snapshot().Reason)
+	}
+	if r.s.pullFailures != 4 {
+		t.Fatalf("still-missing image after a download must count as a failure, got %d", r.s.pullFailures)
+	}
+}
+
+func TestPullSuccessResetsBackoff(t *testing.T) {
+	r := newRig(t, chainDefs(), DefaultRestartPolicy)
+	r.step(Event{Kind: StartRequested})
+	r.step(Event{Kind: PreflightDone, Gen: 1, Report: missingReport([]string{"img-a"})})
+	acts, _ := r.stepRaw(pullFail(1, ProblemPullNetwork))
+	r.timer(TimerPullRetry, "", lastTimerGen(acts, TimerPullRetry, ""))
+	r.step(Event{Kind: PreflightDone, Gen: 2, Report: missingReport([]string{"img-a"})})
+	r.step(Event{Kind: PullDone, Gen: 2})
+	r.step(Event{Kind: PreflightDone, Gen: 3}) // clean
+	r.phase(PhaseStopped)
+	r.step(Event{Kind: StartRequested})
+	r.step(Event{Kind: PreflightDone, Gen: 4, Report: missingReport([]string{"img-a"})})
+	_, got := r.stepRaw(pullFail(3, ProblemPullNetwork))
+	r.want(got, "timer:recheck:@5s", "timer:pullretry:@15s")
+}
+
+func TestStopDuringPull(t *testing.T) {
+	r := newRig(t, chainDefs(), DefaultRestartPolicy)
+	r.step(Event{Kind: StartRequested})
+	r.step(Event{Kind: PreflightDone, Gen: 1, Report: missingReport([]string{"img-a"})})
+	r.want(r.step(Event{Kind: StopRequested}), "cancel-pull#1")
+	r.phase(PhaseStopped)
+	st := r.s.Snapshot()
+	if st.Reason.Code != ReasonPullCancelled || !st.CanStart || st.CanStop {
+		t.Fatalf("state = %+v", st)
+	}
+	// The late result of the cancelled download, and a stale timer, change nothing.
+	r.want(r.step(pullFail(1, ProblemPullFailed)))
+	r.want(r.step(Event{Kind: PullDone, Gen: 1}))
+	r.want(r.timer(TimerPullRetry, "", 1))
+	r.phase(PhaseStopped)
+	// Start downloads at once, even after earlier failures.
+	r.want(r.step(Event{Kind: StartRequested}), "preflight#2")
+	if r.s.Snapshot().Reason.Code != "" {
+		t.Fatalf("reason not cleared: %+v", r.s.Snapshot().Reason)
+	}
+	r.want(r.step(Event{Kind: PreflightDone, Gen: 2, Report: missingReport([]string{"img-a"})}), "pull#2:img-a")
+	// A second Stop has nothing left to cancel.
+	r.want(r.step(Event{Kind: StopRequested}), "cancel-pull#2")
+	r.want(r.step(Event{Kind: StopRequested}))
+}
+
+func TestStopDuringPullThenStartForgetsBackoff(t *testing.T) {
+	r := newRig(t, chainDefs(), DefaultRestartPolicy)
+	r.step(Event{Kind: StartRequested})
+	r.step(Event{Kind: PreflightDone, Gen: 1, Report: missingReport([]string{"img-a"})})
+	r.step(pullFail(1, ProblemPullNetwork))
+	r.want(r.step(Event{Kind: StopRequested}))
+	r.phase(PhaseStopped)
+	r.step(Event{Kind: StartRequested})
+	r.want(r.step(Event{Kind: PreflightDone, Gen: 2, Report: missingReport([]string{"img-a"})}), "pull#2:img-a")
+	_, got := r.stepRaw(pullFail(2, ProblemPullNetwork))
+	r.want(got, "timer:recheck:@5s", "timer:pullretry:@15s")
+}
+
+func TestShutdownDuringPull(t *testing.T) {
+	r := newRig(t, chainDefs(), DefaultRestartPolicy)
+	r.step(Event{Kind: StartRequested})
+	r.step(Event{Kind: PreflightDone, Gen: 1, Report: missingReport([]string{"img-a"})})
+	r.want(r.step(Event{Kind: ShutdownRequested}), "cancel-pull#1", "exit:0")
+	r.want(r.step(Event{Kind: PullDone, Gen: 1}))
+}
+
+func TestShutdownAfterPullFailureDoesNotCancel(t *testing.T) {
+	r := newRig(t, chainDefs(), DefaultRestartPolicy)
+	r.step(Event{Kind: StartRequested})
+	r.step(Event{Kind: PreflightDone, Gen: 1, Report: missingReport([]string{"img-a"})})
+	r.step(pullFail(1, ProblemPullNetwork))
+	r.want(r.step(Event{Kind: ShutdownRequested}), "exit:0")
+}
+
+func TestStopInUnavailableClearsHold(t *testing.T) {
+	r := newRig(t, chainDefs(), DefaultRestartPolicy)
+	r.step(Event{Kind: StartRequested})
+	r.step(Event{Kind: PreflightDone, Gen: 1, Report: missingReport([]string{"img-a"})})
+	acts, _ := r.stepRaw(pullFail(1, ProblemPullDenied))
+	r.want(r.step(Event{Kind: StopRequested}))
+	r.phase(PhaseStopped)
+	if r.s.Snapshot().Reason.Code != "" {
+		t.Fatalf("reason = %+v", r.s.Snapshot().Reason)
+	}
+	r.want(r.timer(TimerPullRetry, "", lastTimerGen(acts, TimerPullRetry, ""))) // cancelled
+	r.want(r.timer(TimerRecheck, "", lastTimerGen(acts, TimerRecheck, "")))
+	r.step(Event{Kind: StartRequested})
+	r.want(r.step(Event{Kind: PreflightDone, Gen: 2, Report: missingReport([]string{"img-a"})}), "pull#2:img-a")
+}
+
+func TestStartIgnoredWhileDownloading(t *testing.T) {
+	r := newRig(t, chainDefs(), DefaultRestartPolicy)
+	r.step(Event{Kind: CheckRequested})
+	r.step(Event{Kind: PreflightDone, Gen: 1, Report: missingReport([]string{"img-a"})})
+	r.want(r.step(Event{Kind: StartRequested}))
+	r.want(r.step(Event{Kind: CheckRequested}))
+	r.want(r.timer(TimerRecheck, "", 1))
+	r.phase(PhaseDownloading)
+	// A stale download result (older generation) is ignored.
+	r.want(r.step(Event{Kind: PullDone, Gen: 99}))
+	r.phase(PhaseDownloading)
+}
+
+func TestStartAfterCheckSurvivesDownload(t *testing.T) {
+	r := newRig(t, chainDefs(), DefaultRestartPolicy)
+	r.step(Event{Kind: StartRequested})
+	r.step(Event{Kind: PreflightDone, Gen: 1, Report: missingReport([]string{"img-a"})})
+	// A failed download drops the pending start: the user must press Start again.
+	r.step(pullFail(1, ProblemPullNetwork))
+	r.phase(PhaseUnavailable)
+	if r.s.startAfterCheck {
+		t.Fatal("startAfterCheck survived a failed download")
+	}
 }
