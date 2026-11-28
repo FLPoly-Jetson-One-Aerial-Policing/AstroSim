@@ -50,7 +50,10 @@ uses the local images `astrosim-engine` and `astrosim-fc` and never downloads an
 
 ## Versioning
 
-AstroSim uses [Semantic Versioning](https://semver.org/), starting at **v0.1.0** for the first working release. Before 1.0, a
+**There are no tagged releases until the MVP is reached.** Until then, the nightly prerelease is the only published build,
+so don't push a `v*` tag before the maintainers agree the MVP is done.
+
+AstroSim uses [Semantic Versioning](https://semver.org/), starting at **v0.1.0** for the MVP. Before 1.0, a
 new minor version (`0.2.0`) brings features and a patch version (`0.1.1`) brings fixes only. Use a prerelease suffix such as
 `-rc.1` for a dry run: it gets a prerelease with its own assets and image tag, and does not touch `latest` or `X.Y`.
 
