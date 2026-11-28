@@ -355,11 +355,18 @@ func logRoot(cfg config.Config, goos string, getenv func(string) string) (string
 	if cfg.LogDir != "" {
 		return filepath.Abs(cfg.LogDir)
 	}
-	home, err := os.UserHomeDir()
-	if err != nil {
-		home = ""
+	return logs.DefaultDir(goos, getenv, homeDir(goos, getenv))
+}
+
+// homeDir returns the user's home directory for goos as getenv reports it
+// (USERPROFILE on windows, HOME elsewhere), or "" when unset. It reads only
+// getenv, never the process environment, so the injected environment is the
+// single source of settings.
+func homeDir(goos string, getenv func(string) string) string {
+	if goos == "windows" {
+		return getenv("USERPROFILE")
 	}
-	return logs.DefaultDir(goos, getenv, home)
+	return getenv("HOME")
 }
 
 // logCapture returns the session's log capture for rec, or nil when file

@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"io"
 	"log/slog"
@@ -10,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	goruntime "runtime"
 	"strings"
 	"testing"
 	"time"
@@ -169,9 +171,10 @@ func TestNewSessionID(t *testing.T) {
 func TestLogRoot(t *testing.T) {
 	env := func(m map[string]string) func(string) string { return func(k string) string { return m[k] } }
 	home := t.TempDir()
-	t.Setenv("HOME", home)
-	t.Setenv("USERPROFILE", home)
+	custom := filepath.Join(t.TempDir(), "custom")
 	abs, _ := filepath.Abs("rel/logs")
+	// The default folders are built for the target OS with its own
+	// separators, so they are plain strings whatever the host is.
 	tests := []struct {
 		name string
 		goos string
@@ -179,11 +182,12 @@ func TestLogRoot(t *testing.T) {
 		env  map[string]string
 		want string
 	}{
-		{"linux default", "linux", "", nil, filepath.Join(home, ".local/state/astrosim/logs")},
+		{"linux default", "linux", "", map[string]string{"HOME": home}, strings.TrimRight(home, "/") + "/.local/state/astrosim/logs"},
 		{"linux xdg", "linux", "", map[string]string{"XDG_STATE_HOME": "/state"}, "/state/astrosim/logs"},
-		{"darwin default", "darwin", "", nil, home + "/Library/Logs/AstroSim"},
+		{"darwin default", "darwin", "", map[string]string{"HOME": home}, strings.TrimRight(home, "/") + "/Library/Logs/AstroSim"},
 		{"windows default", "windows", "", map[string]string{"LOCALAPPDATA": `C:\Users\u\AppData\Local`}, `C:\Users\u\AppData\Local\AstroSim\logs`},
-		{"override", "linux", "/custom", nil, "/custom"},
+		{"windows home fallback", "windows", "", map[string]string{"USERPROFILE": `C:\Users\u`}, `C:\Users\u\AppData\Local\AstroSim\logs`},
+		{"override", "linux", custom, nil, custom},
 		{"relative override is made absolute", "darwin", "rel/logs", nil, abs},
 	}
 	for _, tt := range tests {
@@ -200,8 +204,26 @@ func TestLogRoot(t *testing.T) {
 
 func TestPrintLogDir(t *testing.T) {
 	state := t.TempDir()
+	// The default folder is for the host OS, so set that OS's variable.
+	defEnv := map[string]string{"XDG_STATE_HOME": state}
+	def := strings.TrimRight(state, "/") + "/astrosim/logs"
+	switch goruntime.GOOS {
+	case "windows":
+		defEnv = map[string]string{"LOCALAPPDATA": state}
+		def = strings.TrimRight(state, `\/`) + `\AstroSim\logs`
+	case "darwin":
+		defEnv = map[string]string{"HOME": state}
+		def = strings.TrimRight(state, "/") + "/Library/Logs/AstroSim"
+	}
+	fromJSON := filepath.Join(t.TempDir(), "json")
+	fromEnv := filepath.Join(t.TempDir(), "env")
+	fromFlag := filepath.Join(t.TempDir(), "flag")
 	cfgFile := filepath.Join(t.TempDir(), "c.json")
-	if err := os.WriteFile(cfgFile, []byte(`{"logDir":"/from/json"}`), 0o600); err != nil {
+	cfgJSON, err := json.Marshal(map[string]string{"logDir": fromJSON})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(cfgFile, cfgJSON, 0o600); err != nil {
 		t.Fatal(err)
 	}
 	tests := []struct {
@@ -210,14 +232,13 @@ func TestPrintLogDir(t *testing.T) {
 		env  map[string]string
 		want string
 	}{
-		{"default", nil, map[string]string{"XDG_STATE_HOME": state}, filepath.Join(state, "astrosim", "logs")},
-		{"json", []string{"--config", cfgFile}, nil, "/from/json"},
-		{"env beats json", []string{"--config", cfgFile}, map[string]string{"ASTROSIM_ORCH_LOG_DIR": "/from/env"}, "/from/env"},
-		{"flag beats env", []string{"--log-dir", "/from/flag"}, map[string]string{"ASTROSIM_ORCH_LOG_DIR": "/from/env"}, "/from/flag"},
-		{"flag with equals", []string{"--log-dir=/from/flag"}, nil, "/from/flag"},
+		{"default", nil, defEnv, def},
+		{"json", []string{"--config", cfgFile}, nil, fromJSON},
+		{"env beats json", []string{"--config", cfgFile}, map[string]string{"ASTROSIM_ORCH_LOG_DIR": fromEnv}, fromEnv},
+		{"flag beats env", []string{"--log-dir", fromFlag}, map[string]string{"ASTROSIM_ORCH_LOG_DIR": fromEnv}, fromFlag},
+		{"flag with equals", []string{"--log-dir=" + fromFlag}, nil, fromFlag},
 		// Nothing else is checked or run: an invalid setting does not matter.
-		{"wins over validation", []string{"--restart-max=0", "--autostart", "--cleanup"}, map[string]string{"XDG_STATE_HOME": state},
-			filepath.Join(state, "astrosim", "logs")},
+		{"wins over validation", []string{"--restart-max=0", "--autostart", "--cleanup"}, defEnv, def},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -229,8 +250,8 @@ func TestPrintLogDir(t *testing.T) {
 			}
 		})
 	}
-	if _, err := os.Stat(filepath.Join(state, "astrosim")); err == nil {
-		t.Error("--print-log-dir created the directory")
+	if entries, err := os.ReadDir(state); err != nil || len(entries) != 0 {
+		t.Errorf("--print-log-dir created something in %s: %v, %v", state, entries, err)
 	}
 }
 
