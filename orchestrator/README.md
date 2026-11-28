@@ -228,7 +228,9 @@ session, so a problem can be diagnosed after the containers are gone. They are n
 | macOS | `~/Library/Logs/AstroSim` |
 | Windows | `%LOCALAPPDATA%\AstroSim\logs` |
 
-Folders are created readable by you only. If the logs cannot be opened, AstroSim warns and runs without them, and the
+On Linux and macOS, folders and files are created readable by you only (`0700` and `0600`). Windows ignores those modes:
+a folder takes its access rules from the folder it is created in. The default location under `%LOCALAPPDATA%` is
+private to you, but a `--log-dir` elsewhere, such as a shared drive, is as open as that place. If the logs cannot be opened, AstroSim warns and runs without them, and the
 dashboard hides its Logs card.
 
 **Layout.** Each session gets a folder named `<YYYYMMDDTHHMMSSZ>-<session id>`, with the start time in UTC:
