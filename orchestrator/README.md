@@ -11,6 +11,19 @@ interface is a separate piece and is not part of this program.
 
 ## Quick start
 
+There are two ways to get going. Either way you need Podman or Docker installed and running.
+
+**From a release build.** A release build of `astrosim` (the one CI publishes) knows where its two images are
+published and downloads them itself.
+
+1. Install Podman or Docker, and download and unpack the `astrosim` archive for your system.
+2. Run `astrosim` (or `astrosim.exe`). The dashboard opens in your browser at `http://127.0.0.1:8770`. The first
+   time, and again for each new version, it downloads the simulator (several GB) before you can press **Start**; the
+   page shows the progress and has a **Cancel download** button. See [Images and downloads](#images-and-downloads).
+3. Press **Start**.
+
+**From source.** A development build uses images you build yourself, and never downloads anything.
+
 1. Build the orchestrator and the two images once (needs a Linux machine with Podman or Docker; see
    [Building and testing](#building-and-testing)):
 
@@ -22,8 +35,9 @@ interface is a separate piece and is not part of this program.
 
 2. Run `./astrosim` from the repository root (or `astrosim.exe`). The dashboard opens in your browser at
    `http://127.0.0.1:8770`. Press **Start**.
-3. Press `Ctrl+C` (or close the window) to stop the containers and quit. See [Shutting down](#shutting-down) for
-   every way of ending it and what happens after a crash.
+
+Press `Ctrl+C` (or close the window) to stop the containers and quit. See [Shutting down](#shutting-down) for
+every way of ending it and what happens after a crash.
 
 Closing the browser tab does not stop the simulation. Use `--autostart` to skip the button and `--no-browser` to not
 open a page.
@@ -94,6 +108,72 @@ They adjust a built-in component; they cannot define a new one. Zero or missing 
 | `stopTimeout` | Grace period given to the container on stop |
 | `disabled` | Remove the component from the stack (not allowed while another enabled component depends on it) |
 
+## Images and downloads
+
+Each component runs from a container image. Which image that is depends on how `astrosim` was built:
+
+| Build | Image references | Downloaded? |
+|-|-|-|
+| Development (`orchestrator/build.sh`) | `astrosim-engine`, `astrosim-fc`: the images you built locally | Never |
+| Release (`ASTROSIM_IMAGE_REPOSITORY` and `ASTROSIM_IMAGE_TAG` set, see [Building and testing](#building-and-testing)) | `<repository>/astrosim-engine:<tag>`, `<repository>/astrosim-fc:<tag>` | When missing |
+
+The repository and tag are fixed into the binary with `-ldflags "-X main.imageRepository=... -X main.imageTag=..."`,
+so a release always downloads exactly the images it was tested with. `astrosim --version` shows them in its `images`
+line. A `components.<id>.image` setting in the JSON file still overrides them.
+
+**What can be downloaded.** An image is downloaded only if its reference names a registry explicitly: it has a `/`
+and its first part contains a `.` or a `:` (`ghcr.io/org/x:1`, `localhost:5000/x`). A name without a registry, such as
+`astrosim-engine` or `org/x`, would be looked up on docker.io by default, which is never what is meant, so it is
+reported as missing instead. A bare `localhost/` prefix does not count either: Podman files locally built images
+under `localhost/`, so they can only be built, and the dashboard keeps showing the build command for them.
+
+**When.** With `--pull missing` (the default), every check that finds such an image missing downloads it: the check at
+startup, the repeated checks while the stack is unavailable, and the check when you press **Start**. Starting the
+program is already the intent to use it, so the download begins at once. A download only ever fetches images that
+are missing; present images are not checked for newer versions, because a tag names one build. With `--pull never`
+nothing is downloaded: missing images are reported, and the dashboard shows the `podman pull` command to run by hand.
+
+**What the dashboard shows.** The status is `downloading`, the button reads **Cancel download**, and each part being
+fetched has a *Downloading* badge, a moving bar, the time elapsed and the latest line the runtime printed. The bar
+does not fill up, because Podman and Docker print no byte counts when they are not on a terminal, and a layer count
+would mislead (one layer of the engine image is most of its size). When an image has arrived its badge says
+*Downloaded*; when all have, the stack is checked again and, if you pressed Start, started.
+
+**Cancelling.** **Cancel download** (the Stop request) and `Ctrl+C` both cancel the download and end the
+`pull` command within a few seconds. The status then goes to `stopped` with the reason `pull_cancelled`, and
+`--autostart` does not start again, so cancelling never restarts the download. Podman discards a cancelled partial
+download; Docker keeps the layers that finished. Pressing **Start** downloads again at once.
+
+**Failures.** A failed download puts the stack in `unavailable` with one of these reasons, and the dashboard says
+what to do:
+
+| Reason code | Meaning |
+|-|-|
+| `pull_network` | The registry could not be reached |
+| `pull_denied` | The registry refused access (often a stale `podman login`) |
+| `pull_not_found` | The image or tag does not exist, or not for this platform |
+| `pull_no_space` | The disk is full |
+| `pull_failed` | Any other failure; `reason.detail` has the runtime's message |
+
+When several images fail, the most actionable code wins, in the order `pull_no_space`, `pull_denied`,
+`pull_not_found`, `pull_network`, `pull_failed`; `reason.detail` lists each image with its message. The orchestrator
+then waits before trying again, so a missing network does not make it hammer the registry: 15 s, 30 s, 1 min, 2 min,
+and 5 min from then on. The 5 s checks go on meanwhile and keep showing the same reason. Pressing **Stop** and then
+**Start** retries at once, and a success starts the count over. Because both images are downloaded in parallel, one
+can arrive while the other fails; the one that arrived is kept.
+
+**Logs.** In the [session logs](#logs), each component whose image is downloaded gets `==== pull <image> ====`, every
+progress line, and then `==== pull done in 3m12s ====` (or `pull failed: ...`, or `pull cancelled`) in its own file
+and in `combined.log`. On the terminal these appear only with `--verbose`; AstroSim's own `downloading image`,
+`image downloaded` and `image download failed` lines always do.
+
+**Disk use.** The engine image is about 1.6 GB and the flight computer's about 90 MB. Every version downloads its
+own images, and old ones are not removed. Shared layers are stored once, but over time the images add up. Remove
+old ones by hand, for example with `podman images` and `podman rmi <image>`, or `podman image prune`.
+
+**Offline use.** Without a network, copy the images over (`podman save` on a machine that has them, `podman load` on
+this one) and run with `--pull never`, so a check never tries to reach the registry.
+
 ## Shutting down
 
 The orchestrator stops and removes both containers on every normal way of quitting. Each container's entrypoint
@@ -101,8 +181,8 @@ forwards the stop signal to its processes and waits for them, so nothing is left
 
 | How it ends | What happens |
 |-|-|
-| **Stop** button | Stops and removes the containers; the orchestrator keeps running |
-| `Ctrl+C` (SIGINT) | Stops and removes the containers, saves the logs as a zip (see [Logs](#logs)), then exits |
+| **Stop** button | Stops and removes the containers; the orchestrator keeps running. While an image is downloading it is **Cancel download** and cancels the download |
+| `Ctrl+C` (SIGINT) | Stops and removes the containers (or cancels a download in progress), saves the logs as a zip (see [Logs](#logs)), then exits |
 | `kill` (SIGTERM) | Same as `Ctrl+C` |
 | Terminal closed (SIGHUP, Linux and macOS) | Same as `Ctrl+C`. Logging to the closed terminal is ignored, so it cannot get in the way |
 | Windows console closed, logoff or shutdown | Go reports these as SIGTERM, so it is handled like `kill`. Not yet verified on Windows hardware |
@@ -180,8 +260,9 @@ characters are removed, bad UTF-8 is replaced, and a line over 16 KiB is cut wit
 
 **Markers.** Lines starting `====` are written by AstroSim, in the component's file and in `combined.log`: `launch
 gen=N` (each container start, so a restart shows as a new generation), `exited code=N`, `launch failed: ...`,
-`capture ended: ...` (the container's log could not be read to the end), `reconnected (since ...)`, and `part N removed
-(log size limit)`. Search for `====` to see the timeline.
+`capture ended: ...` (the container's log could not be read to the end), `reconnected (since ...)`, `part N removed
+(log size limit)`, and the image download markers `pull <image>`, `pull done in ...`, `pull failed: ...` and
+`pull cancelled` (see [Images and downloads](#images-and-downloads)). Search for `====` to see the timeline.
 
 **Terminal.** Normally the terminal shows only AstroSim's own lines. `--verbose` also shows every component line, the
 same as `combined.log`. The terminal never slows the simulation: if it cannot keep up, lines are skipped there (and
@@ -237,7 +318,8 @@ reason `restart_limit` and the last log lines, and you can press Start again.
 With **`--no-fail`** the orchestrator never gives up: once the waits are used up it keeps retrying every 10 s until you
 press Stop or quit, and the status shows `attempt N` without a limit (`maxAttempts` is 0). The exception is a
 permanent failure, which retrying cannot fix: a container exiting with status 2 (invalid configuration) or a missing
-image still goes to `failed`.
+image still goes to `failed`. An image deleted between the check and the launch is such a failure even for a release
+build, which would otherwise download it: pressing Start again re-checks and downloads it.
 
 A component that does not become ready in its ready timeout (engine 60 s, flight computer 90 s) counts as a failure.
 The first start took about 5 s to the engine and about 7 s to the whole stack on the test machine.
@@ -291,6 +373,8 @@ The snapshot (all keys camelCase; lists are `[]`, never `null`):
       "image": "astrosim-engine",
       "installed": true,
       "buildCommand": "podman build -t astrosim-engine -f gazebo-container/Dockerfile .",
+      "pullCommand": "",
+      "download": null,
       "state": "ready",
       "facts": [{ "key": "sim_time", "label": "Simulation time", "value": "0:02.8" }],
       "exitCode": null,
@@ -301,13 +385,23 @@ The snapshot (all keys camelCase; lists are `[]`, never `null`):
 }
 ```
 
-- `phase` is one of `checking`, `unavailable`, `stopped`, `starting`, `running`, `recovering`, `stopping`, `failed`.
+- `phase` is one of `checking`, `downloading`, `unavailable`, `stopped`, `starting`, `running`, `recovering`,
+  `stopping`, `failed`.
 - `reason.code` explains `unavailable` (`runtime_missing`, `runtime_not_running`, `runtime_too_old`, `images_missing`,
-  `port_busy`) and `failed` or `recovering` (`component_exited`, `component_unhealthy`, `ready_timeout`,
-  `launch_failed`, `invalid_config`, `restart_limit`). The page turns these into plain sentences.
+  `port_busy`, and the download failures `pull_network`, `pull_denied`, `pull_not_found`, `pull_no_space`,
+  `pull_failed`), `stopped` (`pull_cancelled`, after a cancelled download) and `failed` or `recovering`
+  (`component_exited`, `component_unhealthy`, `ready_timeout`, `launch_failed`, `invalid_config`, `restart_limit`).
+  The page turns these into plain sentences.
 - Component `state` is one of `pending`, `launching`, `starting`, `ready`, `stale`, `stopping`, `stopped`, `exited`,
   `failed`. `facts` are live details from the component's health check; `lastLog` is the container's log tail,
   captured when it fails. `installed` is false when the image is missing, and `buildCommand` says how to build it.
+  `pullCommand` says how to download it, and is `""` unless the image names a registry (see
+  [Images and downloads](#images-and-downloads)).
+- `download` is `null` except while the phase is `downloading`. Then each component being fetched has, for example,
+  `{"state": "downloading", "since": "2026-11-28T13:41:11-05:00", "elapsedSeconds": 42, "output": "Copying blob
+  sha256:..."}`. `state` is `downloading`, `done` or `failed`, `elapsedSeconds` is computed by the server, so a
+  browser with a different clock still shows the right time, and `output` is the latest progress line (at most 200
+  characters).
 - `maxAttempts` is 0 with `--no-fail` (unlimited).
 - `logDir` is the current session's log folder, or `""` when logging is off (see [Logs](#logs)).
 
@@ -341,7 +435,8 @@ images, which are never downloaded. A release build also names the registry its 
 and `IMAGE_TAG` build arguments of `build.Dockerfile`, and the binary then uses
 `<repository>/astrosim-engine:<tag>` and `<repository>/astrosim-fc:<tag>`. `astrosim --version` prints a second line,
 `images <engine image> <fc image>`, for release builds only. A `components.<id>.image` setting in the JSON file still
-overrides the image. `ASTROSIM_VERSION` replaces the `git describe` version the binary reports.
+overrides the image. `ASTROSIM_VERSION` replaces the `git describe` version the binary reports. See
+[Images and downloads](#images-and-downloads) for what a release build does with its images.
 
 `build.sh` produces `astrosim-{linux,darwin}-{amd64,arm64}` and `astrosim-windows-amd64.exe`; building every target
 catches platform-specific code outside build-tagged files. It also copies this machine's binary to
@@ -359,17 +454,26 @@ logs in a temporary `ASTROSIM_ORCH_LOG_DIR`. It honours `CONTAINER_RUNTIME` and 
 check also needs util-linux `script` and is skipped without it), and exits non-zero on any failure. It takes about
 45 s.
 
+With `ASTROSIM_SMOKE_PULL=1` it first tests the download path. That needs a release build (`ASTROSIM_BIN` pointing at
+one), because it reads the image names from `--version`. It removes those two images, starts the orchestrator
+without `--autostart`, and checks that the startup check is `downloading`, that Stop cancels it
+(`pull_cancelled`), that Start downloads again and reaches `running`, that both images are then present and that
+the log has the `pull` markers. Everything else then runs as before. CI runs it on a runner that is logged out of the
+registry, with the images not present locally, so it sees what a new user sees. Expect it to download the images in
+full: the engine alone is about 1.6 GB.
+
 ## Package layout
 
 ```
 cmd/astrosim/            main: wiring and signals; version.go holds the -ldflags version
 internal/component/      generic component model: Definition, ports, dependencies, StackContext
-internal/components/     registry.go lists every component; engine/ and fc/ define the two we have
+internal/components/     registry.go lists every component; engine/ and fc/ define the two we have; images.go
+                         applies a release build's image repository and tag
 internal/health/         health probes and the Monitor (ready / unhealthy edges)
 internal/wire/           byte-exact decoders for the engine and FC protocols
 internal/runtime/        podman and docker behind one interface, detection, a fake for tests
-internal/supervisor/     pure state machine: start order, restarts, teardown
-internal/session/        driver that runs the supervisor's actions against the runtime
+internal/supervisor/     pure state machine: start order, image downloads, restarts, teardown
+internal/session/        driver that runs the supervisor's actions against the runtime (pull.go: downloads)
 internal/status/         the snapshot JSON and its broadcaster
 internal/api/            HTTP API, SSE and the Host/Origin guards
 internal/web/            the embedded dashboard (index.html, app.js, style.css)
@@ -429,6 +533,16 @@ add one, touch only these files:
 - **Stale details after a recovery.** While a component is being stopped, its last exit code and log tail from the
   previous failure can still be shown, and the `attempt` counter stays at its last value after a Stop until the next
   Start.
+- **Docker's download errors are hand-written.** The fixtures `internal/runtime` uses to classify failed
+  downloads (`docker_pull_*.log`) are written from Docker's documented messages, not captured, as is Podman's
+  out-of-disk one; the other Podman fixtures are real captures. An unrecognised message is reported as `pull_failed`.
+- **GHCR's "not found" and "denied" are ambiguous.** A package that does not exist, or is private, can answer
+  "denied" instead of "not found", so `pull_denied` can really mean a missing or not yet public package.
+- **No byte progress for downloads.** Only the elapsed time and the runtime's latest line are shown (see
+  [Images and downloads](#images-and-downloads)).
+- **Image availability depends on CI.** Whether images for arm64 or for macOS exist depends on what CI publishes;
+  where they do not, those machines get `pull_not_found`.
+- **Old versions' images are not removed.** See "Disk use" under [Images and downloads](#images-and-downloads).
 - **Real-image runs were tried on one machine only** (Linux, rootless Podman 5.8, bridge mode and a short host-mode
   run). UDP through the published ports worked there, the flight computer resolved `engine` through the network
   alias, the ready timeouts were far longer than needed, and the stops caused by Stop, SIGINT or a recovery were
