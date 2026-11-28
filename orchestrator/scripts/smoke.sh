@@ -264,16 +264,22 @@ fi
 # 2. Kill the engine; the whole sim group must come back.
 old_id="$("$runtime" inspect --format '{{.Id}}' astrosim-engine)"
 "$runtime" kill astrosim-engine >/dev/null
-sleep 1
-if wait_running 180; then
+# The orchestrator may not have noticed the exit yet, so "running" alone proves nothing: wait
+# until a new engine container exists and the run is running again with both parts ready.
+recovered=false
+deadline=$((SECONDS + 180))
+while [ "$SECONDS" -lt "$deadline" ]; do
     new_id="$("$runtime" inspect --format '{{.Id}}' astrosim-engine 2>/dev/null || true)"
-    if [ -n "$new_id" ] && [ "$new_id" != "$old_id" ]; then
-        pass "recovery: engine relaunched and the run is running again"
-    else
-        fail "recovery: running again, but the engine container was not relaunched"
+    if [ -n "$new_id" ] && [ "$new_id" != "$old_id" ] && wait_running 1; then
+        recovered=true
+        break
     fi
+    sleep 1
+done
+if $recovered; then
+    pass "recovery: engine relaunched and the run is running again"
 else
-    fail "recovery: not running within 180 s after killing the engine (phase=$(phase))"
+    fail "recovery: no relaunched engine running within 180 s after the kill (phase=$(phase))"
 fi
 
 # 3. Stop.
