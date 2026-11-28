@@ -259,21 +259,59 @@ func (c *CLI) Stop(ctx context.Context, name string, grace time.Duration) error 
 	return err
 }
 
+// removeBackoff is the wait before each re-check of a container whose
+// `rm -f` failed. The total (3.75 s) bounds how long Remove can stall.
+var removeBackoff = []time.Duration{
+	250 * time.Millisecond, 500 * time.Millisecond, time.Second, 2 * time.Second,
+}
+
+// sleep waits for d or until ctx ends, returning ctx's error in the latter
+// case. It is a variable so tests can replace the real wait.
+var sleep = func(ctx context.Context, d time.Duration) error {
+	t := time.NewTimer(d)
+	defer t.Stop()
+	select {
+	case <-t.C:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
 // Remove implements Runtime. A missing container is success, and so is a
 // failed `rm -f` after which the container is gone anyway: rootless podman
 // can delete the container and then fail tidying its network namespace
-// ("rootless netns: kill network process: permission denied"), exiting 125.
+// ("rootless netns: kill network process: permission denied", typically
+// Ubuntu's AppArmor profile restricting podman's network helper), exiting
+// 125. Podman may finish the removal a moment later, so after a failure
+// Remove inspects and retries `rm -f` on the removeBackoff schedule. If the
+// container never disappears it returns the first error, wrapped.
 func (c *CLI) Remove(ctx context.Context, name string) error {
 	_, err := c.do(ctx, "rm", "-f", name)
 	if err == nil || errors.Is(err, ErrNotFound) {
 		return nil
 	}
-	if _, ierr := c.Inspect(ctx, name); errors.Is(ierr, ErrNotFound) {
-		slog.Warn("container removed although the runtime reported an error",
-			"container", name, "err", err)
-		return nil
+	for _, d := range removeBackoff {
+		if serr := sleep(ctx, d); serr != nil {
+			return fmt.Errorf("remove %s: %w (waiting: %w)", name, err, serr)
+		}
+		_, ierr := c.Inspect(ctx, name)
+		if errors.Is(ierr, ErrNotFound) {
+			slog.Warn("container removed although the runtime reported an error",
+				"container", name, "err", err)
+			return nil
+		}
+		if ierr != nil {
+			// Existence is unknown; do not hide the removal failure.
+			continue
+		}
+		if _, rerr := c.do(ctx, "rm", "-f", name); rerr == nil || errors.Is(rerr, ErrNotFound) {
+			slog.Warn("container removed on retry after the runtime reported an error",
+				"container", name, "err", err)
+			return nil
+		}
 	}
-	return err
+	return fmt.Errorf("remove %s: %w", name, err)
 }
 
 // Wait implements Runtime.

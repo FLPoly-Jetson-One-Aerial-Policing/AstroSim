@@ -277,31 +277,148 @@ func TestStopRemoveWait(t *testing.T) {
 	}
 }
 
+// seqCommander replays a fixed sequence of results per command key
+// (the arguments joined by spaces); the last result repeats.
+type seqCommander struct {
+	seq   map[string][]Result
+	calls []string
+}
+
+func (s *seqCommander) Run(_ context.Context, _ string, args ...string) (Result, error) {
+	key := strings.Join(args, " ")
+	s.calls = append(s.calls, key)
+	q := s.seq[key]
+	if len(q) == 0 {
+		return Result{}, nil
+	}
+	r := q[0]
+	if len(q) > 1 {
+		s.seq[key] = q[1:]
+	}
+	return r, nil
+}
+
+func (s *seqCommander) count(key string) int {
+	n := 0
+	for _, c := range s.calls {
+		if c == key {
+			n++
+		}
+	}
+	return n
+}
+
+// fakeSleep replaces sleep for a test and records the requested waits.
+// A non-nil failAt ends the wait with that error on the n-th call (1-based).
+func fakeSleep(t *testing.T, failAt int, err error) *[]time.Duration {
+	t.Helper()
+	old := sleep
+	t.Cleanup(func() { sleep = old })
+	var waits []time.Duration
+	sleep = func(_ context.Context, d time.Duration) error {
+		waits = append(waits, d)
+		if failAt > 0 && len(waits) == failAt {
+			return err
+		}
+		return nil
+	}
+	return &waits
+}
+
 // TestRemoveGoneAfterFailure covers rootless podman failing to tidy the
 // network after it already deleted the container.
 func TestRemoveGoneAfterFailure(t *testing.T) {
-	netns := fixture(t, "podman_rm_netns_error.log")
-	sc := &scripted{results: map[string]Result{
-		"rm -f gone":                               {ExitCode: 125, Stderr: netns},
-		"inspect --format {{json .State}} gone":    {ExitCode: 125, Stderr: "Error: no such object: \"gone\""},
-		"rm -f stuck":                              {ExitCode: 125, Stderr: netns},
-		"inspect --format {{json .State}} stuck":   {Stdout: fixture(t, "podman_running.json")},
-		"rm -f unknown":                            {ExitCode: 125, Stderr: netns},
-		"inspect --format {{json .State}} unknown": {ExitCode: 1, Stderr: "cannot connect to the engine"},
-	}}
-	cli := NewCLI("podman", Podman, sc)
-	ctx := context.Background()
+	const (
+		rm  = "rm -f c"
+		ins = "inspect --format {{json .State}} c"
+	)
+	netns := Result{ExitCode: 125, Stderr: fixture(t, "podman_rm_netns_error.log")}
+	notFound := Result{ExitCode: 125, Stderr: "Error: no such object: \"c\""}
+	running := Result{Stdout: fixture(t, "podman_running.json")}
+	unknown := Result{ExitCode: 1, Stderr: "cannot connect to the engine"}
 
-	if err := cli.Remove(ctx, "gone"); err != nil {
-		t.Errorf("gone after failed rm: %v", err)
+	tests := []struct {
+		name      string
+		seq       map[string][]Result
+		wantErr   bool
+		wantWaits int
+		wantRm    int
+	}{
+		{"rm succeeds", map[string][]Result{rm: {{}}}, false, 0, 1},
+		{"rm reports not found", map[string][]Result{rm: {notFound}}, false, 0, 1},
+		{"gone on the first inspect", map[string][]Result{rm: {netns}, ins: {notFound}}, false, 1, 1},
+		{"gone after three retries", map[string][]Result{rm: {netns}, ins: {running, running, notFound}}, false, 3, 3},
+		{"rm retry reports not found", map[string][]Result{rm: {netns, notFound}, ins: {running}}, false, 1, 2},
+		{"rm retry succeeds", map[string][]Result{rm: {netns, {}}, ins: {running}}, false, 1, 2},
+		{"never gone", map[string][]Result{rm: {netns}, ins: {running}}, true, 4, 5},
+		{"existence unknown", map[string][]Result{rm: {netns}, ins: {unknown}}, true, 4, 1},
 	}
-	err := cli.Remove(ctx, "stuck")
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			waits := fakeSleep(t, 0, nil)
+			sc := &seqCommander{seq: tt.seq}
+			err := NewCLI("podman", Podman, sc).Remove(context.Background(), "c")
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("err = %v, wantErr %v", err, tt.wantErr)
+			}
+			if tt.wantErr {
+				var ce *CommandError
+				if !errors.As(err, &ce) || ce.ExitCode != 125 || !strings.Contains(err.Error(), "kill network process") {
+					t.Errorf("err = %v, want the original rm failure", err)
+				}
+			}
+			if len(*waits) != tt.wantWaits {
+				t.Errorf("waits = %v, want %d", *waits, tt.wantWaits)
+			}
+			if n := sc.count(rm); n != tt.wantRm {
+				t.Errorf("rm calls = %d, want %d", n, tt.wantRm)
+			}
+		})
+	}
+}
+
+// TestRemoveBackoffBounded checks the wait schedule stays under 5 s.
+func TestRemoveBackoffBounded(t *testing.T) {
+	var total time.Duration
+	for _, d := range removeBackoff {
+		total += d
+	}
+	if total >= 5*time.Second {
+		t.Errorf("total backoff %v, want < 5s", total)
+	}
+}
+
+// TestRemoveContextCancelled checks a context ending during the wait stops
+// the retries and still reports the original failure.
+func TestRemoveContextCancelled(t *testing.T) {
+	fakeSleep(t, 2, context.Canceled)
+	netns := Result{ExitCode: 125, Stderr: fixture(t, "podman_rm_netns_error.log")}
+	running := Result{Stdout: fixture(t, "podman_running.json")}
+	sc := &seqCommander{seq: map[string][]Result{
+		"rm -f c": {netns}, "inspect --format {{json .State}} c": {running},
+	}}
+	err := NewCLI("podman", Podman, sc).Remove(context.Background(), "c")
+	if !errors.Is(err, context.Canceled) {
+		t.Errorf("err = %v, want context.Canceled", err)
+	}
 	var ce *CommandError
-	if !errors.As(err, &ce) || ce.ExitCode != 125 {
-		t.Errorf("still present: err = %v, want the rm failure", err)
+	if !errors.As(err, &ce) {
+		t.Errorf("err = %v, want the rm failure wrapped", err)
 	}
-	if err := cli.Remove(ctx, "unknown"); err == nil {
-		t.Error("want the rm error when existence cannot be determined")
+	if n := sc.count("inspect --format {{json .State}} c"); n != 1 {
+		t.Errorf("inspect calls = %d, want 1", n)
+	}
+}
+
+// TestSleepHonoursContext checks the real wait returns early on cancel.
+func TestSleepHonoursContext(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if err := sleep(ctx, time.Hour); !errors.Is(err, context.Canceled) {
+		t.Errorf("err = %v, want context.Canceled", err)
+	}
+	if err := sleep(context.Background(), time.Millisecond); err != nil {
+		t.Errorf("err = %v", err)
 	}
 }
 
