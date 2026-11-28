@@ -284,8 +284,10 @@ func TestSinkWriteFailureWarnsOnceAndNeverBlocks(t *testing.T) {
 	} else {
 		release()
 	}
-	// Removing the folder makes creating the next component file fail.
-	if err := os.RemoveAll(dir); err != nil {
+	// A directory squatting on the name of a new source's first part file
+	// makes creating that file fail on every OS. (Deleting the session
+	// folder would not: Windows refuses while a file in it is open.)
+	if err := os.Mkdir(filepath.Join(dir, "new0.log"), 0o700); err != nil {
 		t.Fatal(err)
 	}
 	done := make(chan struct{})
