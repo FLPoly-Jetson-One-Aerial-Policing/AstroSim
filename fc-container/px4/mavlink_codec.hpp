@@ -174,12 +174,16 @@ class MavlinkLink {
   MavlinkLink(std::uint8_t system_id, std::uint8_t component_id);
 
   /// @brief Encode HIL_SENSOR and append it to the output.
+  /// @param msg Message to encode.
   void sendHilSensor(const mavlink_hil_sensor_t& msg);
   /// @brief Encode HIL_GPS and append it to the output.
+  /// @param msg Message to encode.
   void sendHilGps(const mavlink_hil_gps_t& msg);
   /// @brief Encode HIL_STATE_QUATERNION and append it to the output.
+  /// @param msg Message to encode.
   void sendHilStateQuaternion(const mavlink_hil_state_quaternion_t& msg);
   /// @brief Encode MANUAL_CONTROL and append it to the output.
+  /// @param msg Message to encode.
   void sendManualControl(const mavlink_manual_control_t& msg);
   /**
    * @brief Encode COMMAND_LONG MAV_CMD_COMPONENT_ARM_DISARM to PX4 and append it to the output.

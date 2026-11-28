@@ -32,8 +32,10 @@ class Px4Telemetry {
   void onMessage(const mavlink_message_t& msg, fc::TimePoint now);
 
   /// @brief Record the simulation time of the latest sensor frame (reported as telemetry time).
+  /// @param time_s Simulation time in seconds.
   void setSimTime(double time_s) { time_s_ = time_s; }
   /// @brief Record the motor outputs commanded by PX4.
+  /// @param motors Motor outputs, one per protocol motor.
   void setMotors(const std::array<float, fc::kNumMotors>& motors) { motors_ = motors; }
   /// @brief Forget everything received.
   void reset() { *this = Px4Telemetry{}; }

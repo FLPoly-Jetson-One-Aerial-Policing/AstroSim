@@ -9,16 +9,27 @@ HTML_OUTPUT            = docs
 CREATE_SUBDIRS         = NO
 
 INPUT                  = README.md \
-                         shared/proto/PROTOCOL.md \
-                         shared/proto/include \
-                         shared/proto/src \
-                         gazebo-container/README.md \
-                         gazebo-container/gateway
+                         orchestrator/README.md \
+                         shared \
+                         gazebo-container \
+                         fc-container
 FILE_PATTERNS          = *.hpp *.cpp *.md
 RECURSIVE              = YES
+# Unit tests are not API documentation.
+EXCLUDE_PATTERNS       = */tests/*
 USE_MDFILE_AS_MAINPAGE = README.md
 STRIP_FROM_PATH        = .
-STRIP_FROM_INC_PATH    = shared/proto/include gazebo-container/gateway
+TOC_INCLUDE_HEADINGS   = 4
+MARKDOWN_ID_STYLE      = GITHUB
+STRIP_FROM_INC_PATH    = shared/aircraft/include \
+                         shared/fc/include \
+                         shared/log/include \
+                         shared/net/include \
+                         shared/proto/include \
+                         gazebo-container/gateway \
+                         gazebo-container/modelgen \
+                         fc-container/bridge \
+                         fc-container/px4
 
 EXTRACT_ALL            = NO
 EXTRACT_PRIVATE        = NO

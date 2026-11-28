@@ -1,4 +1,4 @@
-/** @file config.cpp @brief TOML loading, environment overrides and validation. */
+/* TOML loading, environment overrides and validation. */
 #include "config.hpp"
 
 #include <algorithm>

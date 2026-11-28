@@ -1,9 +1,8 @@
-/**
- * @file main.cpp
- * @brief astrosim-fc-bridge: wires config, the flight computer adapter, synthesized sensors, the spoofed pilot and
+/*
+ * astrosim-fc-bridge: wires config, the flight computer adapter, synthesized sensors, the spoofed pilot and
  * two UDP transports (engine link, telemetry server) into FcBridge and a poll() event loop.
  *
- * @warning Sensors are SYNTHESIZED from engine truth state and the pilot is SPOOFED by a script. Both are
+ * Warning: Sensors are SYNTHESIZED from engine truth state and the pilot is SPOOFED by a script. Both are
  * TEMPORARY and announced at startup, in the stats line and in the telemetry provenance flags.
  */
 #include <arpa/inet.h>

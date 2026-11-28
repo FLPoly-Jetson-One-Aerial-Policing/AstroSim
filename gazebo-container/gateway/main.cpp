@@ -1,6 +1,5 @@
-/**
- * @file main.cpp
- * @brief Engine gateway executable: wires config, GzEngine, net::UdpTransport and Gateway into a poll() event loop.
+/*
+ * Engine gateway executable: wires config, GzEngine, net::UdpTransport and Gateway into a poll() event loop.
  */
 #include <poll.h>
 

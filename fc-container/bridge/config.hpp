@@ -1,6 +1,5 @@
-/**
- * @file config.hpp
- * @brief Flight computer bridge configuration: TOML file plus ASTROSIM_* environment overrides, validated up front.
+/*
+ * Flight computer bridge configuration: TOML file plus ASTROSIM_* environment overrides, validated up front.
  *
  * Same conventions as the engine gateway: every scalar key can be overridden by ASTROSIM_<SECTION>_<KEY>, unknown
  * keys are rejected, and every error names the offending key. The pilot script (an array of tables) is file-only.

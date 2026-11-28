@@ -34,17 +34,26 @@ inline std::string rotorJointName(std::size_t i) {
   return "rotor_" + std::to_string(i) + "_joint";
 }
 
-/** @brief Topic the motor model listens on (gz::msgs::Actuators): robotNamespace + "/" + sub-topic. */
+/**
+ * @brief Topic the motor model listens on (gz::msgs::Actuators): robotNamespace + "/" + sub-topic.
+ * @return The motor command topic.
+ */
 inline std::string motorCommandTopic() {
   return std::string("/") + kModelName + "/" + kMotorCommandSubTopic;
 }
 
-/** @brief Odometry topic (set explicitly in the OdometryPublisher plugin). */
+/**
+ * @brief Odometry topic (set explicitly in the OdometryPublisher plugin).
+ * @return The odometry topic.
+ */
 inline std::string odometryTopic() {
   return std::string("/model/") + kModelName + "/odometry";
 }
 
-/** @brief Joint-state topic (gz::msgs::Model) carrying the rotor joint velocities. */
+/**
+ * @brief Joint-state topic (gz::msgs::Model) carrying the rotor joint velocities.
+ * @return The joint-state topic.
+ */
 inline std::string jointStateTopic() {
   return std::string("/") + kModelName + "/joint_state";
 }

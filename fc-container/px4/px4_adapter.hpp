@@ -47,10 +47,15 @@ class Px4Adapter final : public fc::FlightComputer {
   Px4Adapter& operator=(const Px4Adapter&) = delete;
 
   /// @brief Encode and send the sensor frame to PX4 over the HIL link.
+  /// @param frame Sensor frame to send.
+  /// @param now Current monotonic time.
   void onSensors(const fc::SensorFrame& frame, fc::TimePoint now) override;
   /// @brief Hand the pilot input to the session.
+  /// @param input Pilot input to forward.
+  /// @param now Current monotonic time.
   void onPilot(const fc::PilotInput& input, fc::TimePoint now) override;
   /// @brief Accept, read and write the sockets and run the session timers.
+  /// @param now Current monotonic time.
   void poll(fc::TimePoint now) override;
   /** @return The newest motor command from PX4, or std::nullopt. */
   std::optional<fc::MotorCommand> takeMotors() override { return session_.takeMotors(); }

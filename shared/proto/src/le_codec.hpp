@@ -38,6 +38,8 @@ class Writer {
   void f64(double v) { le(std::bit_cast<std::uint64_t>(v), 8); }
 
   /// @brief Writes every element of @p a using the member function @p put.
+  /// @param a Elements to write, in order.
+  /// @param put Member function that writes one element.
   template <std::size_t N, typename F>
   void array(const std::array<F, N>& a, void (Writer::*put)(F)) {
     for (F v : a) (this->*put)(v);

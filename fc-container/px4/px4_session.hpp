@@ -74,12 +74,17 @@ class Px4Session {
   explicit Px4Session(const Px4SessionConfig& config = {});
 
   /// @brief PX4 connected to the HIL TCP port: start a fresh lockstep session.
+  /// @param now Current monotonic time.
   void onHilConnected(fc::TimePoint now);
   /// @brief The HIL TCP connection closed.
   void onHilDisconnected();
   /// @brief Bytes received on the HIL link (any chunking).
+  /// @param data Received bytes.
+  /// @param now Current monotonic time.
   void feedHil(std::span<const std::uint8_t> data, fc::TimePoint now);
   /// @brief Bytes received on the pilot/telemetry UDP link (one datagram at a time is fine).
+  /// @param data Received bytes.
+  /// @param now Current monotonic time.
   void feedMavlink(std::span<const std::uint8_t> data, fc::TimePoint now);
 
   /**

@@ -1,6 +1,5 @@
-/**
- * @file main.cpp
- * @brief astrosim-modelgen: writes the Gazebo model generated from an aircraft file.
+/*
+ * astrosim-modelgen: writes the Gazebo model generated from an aircraft file.
  */
 #include <cstdio>
 #include <exception>
