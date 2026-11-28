@@ -1,0 +1,2 @@
+Error: cleaning up container abc123: removing container abc123 network: 1 error occurred:
+	* rootless netns: kill network process: permission denied

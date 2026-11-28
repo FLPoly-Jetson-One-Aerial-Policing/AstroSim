@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"sort"
 	"strconv"
 	"strings"
@@ -258,10 +259,18 @@ func (c *CLI) Stop(ctx context.Context, name string, grace time.Duration) error 
 	return err
 }
 
-// Remove implements Runtime. A missing container is success.
+// Remove implements Runtime. A missing container is success, and so is a
+// failed `rm -f` after which the container is gone anyway: rootless podman
+// can delete the container and then fail tidying its network namespace
+// ("rootless netns: kill network process: permission denied"), exiting 125.
 func (c *CLI) Remove(ctx context.Context, name string) error {
 	_, err := c.do(ctx, "rm", "-f", name)
-	if errors.Is(err, ErrNotFound) {
+	if err == nil || errors.Is(err, ErrNotFound) {
+		return nil
+	}
+	if _, ierr := c.Inspect(ctx, name); errors.Is(ierr, ErrNotFound) {
+		slog.Warn("container removed although the runtime reported an error",
+			"container", name, "err", err)
 		return nil
 	}
 	return err

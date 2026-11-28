@@ -277,6 +277,34 @@ func TestStopRemoveWait(t *testing.T) {
 	}
 }
 
+// TestRemoveGoneAfterFailure covers rootless podman failing to tidy the
+// network after it already deleted the container.
+func TestRemoveGoneAfterFailure(t *testing.T) {
+	netns := fixture(t, "podman_rm_netns_error.log")
+	sc := &scripted{results: map[string]Result{
+		"rm -f gone":                               {ExitCode: 125, Stderr: netns},
+		"inspect --format {{json .State}} gone":    {ExitCode: 125, Stderr: "Error: no such object: \"gone\""},
+		"rm -f stuck":                              {ExitCode: 125, Stderr: netns},
+		"inspect --format {{json .State}} stuck":   {Stdout: fixture(t, "podman_running.json")},
+		"rm -f unknown":                            {ExitCode: 125, Stderr: netns},
+		"inspect --format {{json .State}} unknown": {ExitCode: 1, Stderr: "cannot connect to the engine"},
+	}}
+	cli := NewCLI("podman", Podman, sc)
+	ctx := context.Background()
+
+	if err := cli.Remove(ctx, "gone"); err != nil {
+		t.Errorf("gone after failed rm: %v", err)
+	}
+	err := cli.Remove(ctx, "stuck")
+	var ce *CommandError
+	if !errors.As(err, &ce) || ce.ExitCode != 125 {
+		t.Errorf("still present: err = %v, want the rm failure", err)
+	}
+	if err := cli.Remove(ctx, "unknown"); err == nil {
+		t.Error("want the rm error when existence cannot be determined")
+	}
+}
+
 func TestListByLabel(t *testing.T) {
 	sc := &scripted{results: map[string]Result{"ps": {Stdout: "astrosim-fc\n\nastrosim-engine\n"}}}
 	got, err := NewCLI("rt", Podman, sc).ListByLabel(context.Background(), "astrosim.managed", "true")
