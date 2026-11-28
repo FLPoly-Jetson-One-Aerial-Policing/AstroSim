@@ -115,6 +115,7 @@ func TestOpenNamesAndHeader(t *testing.T) {
 func TestNilRecorderIsInert(t *testing.T) {
 	var r *Recorder
 	r.Note("fc", "x")
+	r.Line("fc", "x")
 	if r.Dir() != "" || r.Name() != "" || r.OrchestratorWriter() != nil || r.Close(context.Background()) != nil {
 		t.Error("nil recorder not inert")
 	}
@@ -154,6 +155,32 @@ func TestCaptureStdoutStderrAndLaunchMarker(t *testing.T) {
 	comb := f.file(t, "combined.log")
 	if !strings.Contains(comb, " fc           | ==== launch gen=3") || !strings.Contains(comb, " fc           | out one") {
 		t.Errorf("combined.log:\n%s", comb)
+	}
+}
+
+func TestLineWritesPlainLines(t *testing.T) {
+	f := newFixture(t, nil, false)
+	f.rec.Note("fc", "pull ghcr.io/o/fc:1")
+	f.rec.Line("fc", "Copying blob sha256:abc")
+	f.rec.Line("fc", "\x1b[31mred\x1b[0m text\x00")
+	f.rec.Line("fc", "\x1b[0m")
+	f.rec.Line("fc", "")
+	f.rec.Line("engine", "other component")
+	fc := f.file(t, "fc.log")
+	for _, want := range []string{"| ==== pull ghcr.io/o/fc:1 ====\n", "| Copying blob sha256:abc\n", "| red text\n"} {
+		if !strings.Contains(fc, want) {
+			t.Errorf("fc.log lacks %q:\n%s", want, fc)
+		}
+	}
+	if strings.Contains(fc, "\x1b") || strings.Contains(fc, "other component") || strings.Contains(fc, "|\n") {
+		t.Errorf("fc.log:\n%s", fc)
+	}
+	comb := f.file(t, "combined.log")
+	if !strings.Contains(comb, " fc           | Copying blob sha256:abc") || !strings.Contains(comb, " engine       | other component") {
+		t.Errorf("combined.log:\n%s", comb)
+	}
+	if strings.Contains(f.console.String(), "Copying blob") {
+		t.Errorf("non-verbose console shows a component line:\n%s", f.console.String())
 	}
 }
 
