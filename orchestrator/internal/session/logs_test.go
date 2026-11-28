@@ -21,6 +21,7 @@ type fakeLogs struct {
 	mu     sync.Mutex
 	begun  []string
 	notes  []string
+	lines  []string
 	drains map[string]int // component -> length of the runtime journal at Drain
 }
 
@@ -35,6 +36,12 @@ func (f *fakeLogs) Note(component, msg string) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.notes = append(f.notes, component+": "+msg)
+}
+
+func (f *fakeLogs) Line(component, line string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.lines = append(f.lines, component+": "+line)
 }
 
 type fakeCapture struct {

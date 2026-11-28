@@ -36,6 +36,7 @@ import (
 	"github.com/FLPoly-Jetson-One-Aerial-Policing/AstroSim/orchestrator/internal/runtime"
 	"github.com/FLPoly-Jetson-One-Aerial-Policing/AstroSim/orchestrator/internal/session"
 	"github.com/FLPoly-Jetson-One-Aerial-Policing/AstroSim/orchestrator/internal/status"
+	"github.com/FLPoly-Jetson-One-Aerial-Policing/AstroSim/orchestrator/internal/supervisor"
 	goruntime "runtime"
 )
 
@@ -270,6 +271,7 @@ func run(args []string, getenv func(string) string, stdout, stderr io.Writer) in
 		SessionID:    sessionID,
 		Version:      version,
 		Logs:         logCapture(rec),
+		PullMissing:  cfg.Pull == config.PullMissing,
 		LogDir:       rec.Dir(),
 		Broadcaster:  bc,
 		Logger:       log,
@@ -506,7 +508,8 @@ func refuseCleanup(lockPath string, stdout io.Writer, log *slog.Logger) int {
 	return exitFailure
 }
 
-// autostart presses Start once the first check has reached "stopped".
+// autostart presses Start once the first check, and any download it began,
+// has reached "stopped". It does nothing when the user cancelled the download.
 func autostart(sess *session.Session, bc *status.Broadcaster, ctx context.Context, log *slog.Logger) {
 	ch, cancel := bc.Subscribe()
 	defer cancel()
@@ -517,6 +520,12 @@ func autostart(sess *session.Session, bc *status.Broadcaster, ctx context.Contex
 		case snap := <-ch:
 			if snap.Phase != "stopped" {
 				continue
+			}
+			if snap.Reason.Code == supervisor.ReasonPullCancelled {
+				// The user cancelled the download: pressing Start would
+				// begin it again.
+				log.Info("autostart cancelled with the download")
+				return
 			}
 			if err := sess.Start(); err != nil {
 				log.Warn("autostart failed", "err", err)

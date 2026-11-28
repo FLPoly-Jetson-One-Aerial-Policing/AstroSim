@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"io"
 	"log/slog"
 	"net"
 	"os"
@@ -11,15 +12,20 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/FLPoly-Jetson-One-Aerial-Policing/AstroSim/orchestrator/internal/component"
 	"github.com/FLPoly-Jetson-One-Aerial-Policing/AstroSim/orchestrator/internal/components"
 	"github.com/FLPoly-Jetson-One-Aerial-Policing/AstroSim/orchestrator/internal/config"
+	"github.com/FLPoly-Jetson-One-Aerial-Policing/AstroSim/orchestrator/internal/health"
 	"github.com/FLPoly-Jetson-One-Aerial-Policing/AstroSim/orchestrator/internal/instance"
 	"github.com/FLPoly-Jetson-One-Aerial-Policing/AstroSim/orchestrator/internal/logging"
 	"github.com/FLPoly-Jetson-One-Aerial-Policing/AstroSim/orchestrator/internal/logs"
 	"github.com/FLPoly-Jetson-One-Aerial-Policing/AstroSim/orchestrator/internal/runtime"
 	"github.com/FLPoly-Jetson-One-Aerial-Policing/AstroSim/orchestrator/internal/runtime/fake"
+	"github.com/FLPoly-Jetson-One-Aerial-Policing/AstroSim/orchestrator/internal/session"
+	"github.com/FLPoly-Jetson-One-Aerial-Policing/AstroSim/orchestrator/internal/status"
+	"github.com/FLPoly-Jetson-One-Aerial-Policing/AstroSim/orchestrator/internal/supervisor"
 )
 
 func tcp(s string) net.Addr {
@@ -332,6 +338,7 @@ func TestSessionLogsAdapter(t *testing.T) {
 	id, _ := rt.Run(context.Background(), runtime.RunSpec{Name: "astrosim-fc", Image: "img"})
 	c := lc.Begin("fc", 2, "astrosim-fc", id, "img")
 	lc.Note("fc", "exited code=1")
+	lc.Line("fc", "Copying blob x")
 	rt.Exit("astrosim-fc", 1)
 	c.Drain(context.Background())
 	if err := rec.Close(context.Background()); err != nil {
@@ -339,7 +346,7 @@ func TestSessionLogsAdapter(t *testing.T) {
 	}
 	b, err := os.ReadFile(filepath.Join(rec.Dir(), "fc.log"))
 	if err != nil || !strings.Contains(string(b), "==== launch gen=2 container=astrosim-fc") ||
-		!strings.Contains(string(b), "==== exited code=1 ====") {
+		!strings.Contains(string(b), "==== exited code=1 ====") || !strings.Contains(string(b), "| Copying blob x\n") {
 		t.Errorf("fc.log = %q, %v", b, err)
 	}
 }
@@ -433,4 +440,100 @@ func TestComponentDefs(t *testing.T) {
 			t.Errorf("err = %v, want a configuration error", err)
 		}
 	})
+}
+
+// autostartSession runs a session whose two images are downloadable and
+// whose download blocks until cancelled.
+func autostartSession(t *testing.T, hook func(ctx context.Context, image string, progress io.Writer) error) (*session.Session, *status.Broadcaster) {
+	t.Helper()
+	mk := func(id string) component.Definition {
+		return component.Definition{
+			ID: id, DisplayName: id, Image: "ghcr.io/t/" + id + ":1", RestartGroup: "sim",
+			Probe:        func(component.StackContext) health.Probe { return nil },
+			ReadyTimeout: time.Minute, LivenessTimeout: time.Second, StopTimeout: time.Second,
+		}
+	}
+	rt := fake.New()
+	rt.PullHook = hook
+	bc := status.NewBroadcaster()
+	sess, err := session.New(session.Options{
+		Runtime: rt, Definitions: []component.Definition{mk("a")}, StackContext: component.DefaultStackContext(),
+		Policy: supervisor.DefaultRestartPolicy, Broadcaster: bc, PullMissing: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan struct{})
+	go func() { _ = sess.Run(context.Background()); close(done) }()
+	t.Cleanup(func() { sess.Shutdown(); <-done })
+	return sess, bc
+}
+
+func waitSnapshot(t *testing.T, bc *status.Broadcaster, cond func(status.Snapshot) bool) status.Snapshot {
+	t.Helper()
+	for deadline := time.Now().Add(5 * time.Second); time.Now().Before(deadline); time.Sleep(2 * time.Millisecond) {
+		if s, ok := bc.Latest(); ok && cond(s) {
+			return s
+		}
+	}
+	s, _ := bc.Latest()
+	t.Fatalf("timed out; last snapshot phase %q reason %+v", s.Phase, s.Reason)
+	return s
+}
+
+func TestAutostartWaitsForTheDownload(t *testing.T) {
+	release := make(chan struct{})
+	sess, bc := autostartSession(t, func(ctx context.Context, _ string, _ io.Writer) error {
+		select {
+		case <-release:
+			return nil
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	})
+	waitSnapshot(t, bc, func(s status.Snapshot) bool { return s.Phase == "downloading" })
+	done := make(chan struct{})
+	go func() {
+		autostart(sess, bc, context.Background(), logging.New(&bytes.Buffer{}, slog.LevelInfo))
+		close(done)
+	}()
+	time.Sleep(50 * time.Millisecond)
+	select {
+	case <-done:
+		t.Fatal("autostart gave up while downloading")
+	default:
+	}
+	close(release)
+	<-done
+	waitSnapshot(t, bc, func(s status.Snapshot) bool { return s.Phase == "starting" || s.Phase == "running" })
+}
+
+func TestAutostartDoesNotRestartACancelledDownload(t *testing.T) {
+	sess, bc := autostartSession(t, func(ctx context.Context, _ string, _ io.Writer) error {
+		<-ctx.Done()
+		return ctx.Err()
+	})
+	waitSnapshot(t, bc, func(s status.Snapshot) bool { return s.Phase == "downloading" })
+	if err := sess.Stop(); err != nil {
+		t.Fatal(err)
+	}
+	waitSnapshot(t, bc, func(s status.Snapshot) bool { return s.Phase == "stopped" })
+	var out bytes.Buffer
+	done := make(chan struct{})
+	go func() {
+		autostart(sess, bc, context.Background(), logging.New(&out, slog.LevelInfo))
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("autostart did not return")
+	}
+	time.Sleep(50 * time.Millisecond)
+	if s, _ := bc.Latest(); s.Phase != "stopped" || s.Reason.Code != "pull_cancelled" {
+		t.Errorf("autostart changed the state: %+v", s)
+	}
+	if !strings.Contains(out.String(), "cancelled with the download") {
+		t.Errorf("log = %q", out.String())
+	}
 }
