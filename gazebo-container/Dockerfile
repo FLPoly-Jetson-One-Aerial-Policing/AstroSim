@@ -90,7 +90,8 @@ COPY gazebo-container/worlds/ /opt/astrosim/worlds/
 COPY shared/aircraft/jetson_one.toml /opt/astrosim/config/jetson_one.toml
 COPY --chmod=755 gazebo-container/entrypoint.sh /opt/astrosim/entrypoint.sh
 
-USER astrosim
+# Numeric, so that container runtimes can verify the user is not root (uid 10001 is the astrosim user above).
+USER 10001
 
 EXPOSE 8765/udp
 
