@@ -108,9 +108,9 @@ void FcBridge::onTelemetryDatagram(const Endpoint& from, std::span<const std::by
   const fcwire::DecodeResult result = fcwire::decode(bytes);
   if (const auto* err = std::get_if<fcwire::DecodeError>(&result)) {
     ++stats_.telemetry_malformed;
-    warnLimited(std::format("tmalformed:{}", fcwire::toString(*err)), now,
-                std::format("dropping malformed telemetry-port datagram from {}: {}", from.toString(),
-                            fcwire::toString(*err)));
+    warnLimited(
+        std::format("tmalformed:{}", fcwire::toString(*err)), now,
+        std::format("dropping malformed telemetry-port datagram from {}: {}", from.toString(), fcwire::toString(*err)));
     return;
   }
   const auto& packet = std::get<fcwire::Packet>(result);
@@ -127,9 +127,9 @@ void FcBridge::onTelemetryDatagram(const Endpoint& from, std::span<const std::by
   }
   if (subscribers_.size() >= max_subscribers_) {
     ++stats_.telemetry_subscriber_rejects;
-    warnLimited("subscriber_cap", now,
-                std::format("rejecting telemetry subscriber {}: limit of {} reached", from.toString(),
-                            max_subscribers_));
+    warnLimited(
+        "subscriber_cap", now,
+        std::format("rejecting telemetry subscriber {}: limit of {} reached", from.toString(), max_subscribers_));
     return;
   }
   subscribers_.emplace(from, now);
@@ -159,8 +159,8 @@ void FcBridge::sendControl(TimePoint now) {
   const FailsafeReason reason = evaluateFailsafe(now);
   if (reason != failsafe_) {
     // Disarmed and not-yet-commanded are normal states; anything else is a fault.
-    const bool normal = reason == FailsafeReason::kNone || reason == FailsafeReason::kDisarmed ||
-                        reason == FailsafeReason::kNoCommand;
+    const bool normal =
+        reason == FailsafeReason::kNone || reason == FailsafeReason::kDisarmed || reason == FailsafeReason::kNoCommand;
     if (reason == FailsafeReason::kNone) {
       log::info("failsafe cleared: passing the flight computer's motor commands to the engine");
     } else if (normal) {
@@ -173,8 +173,10 @@ void FcBridge::sendControl(TimePoint now) {
   }
 
   proto::ControlMsg msg;  // all zero
-  if (reason == FailsafeReason::kNone) msg = proto::sanitize(proto::ControlMsg{last_cmd_->power});
-  else ++stats_.tx_control_failsafe;
+  if (reason == FailsafeReason::kNone)
+    msg = proto::sanitize(proto::ControlMsg{last_cmd_->power});
+  else
+    ++stats_.tx_control_failsafe;
   sent_power_ = msg.power;
   engine_link_.send(engine_, wire::encode(msg, ++control_seq_));
   ++stats_.tx_control;
@@ -259,12 +261,12 @@ std::string FcBridge::formatStats() const {
       "motor_cmds={} tx_subscribe={} tx_control={} control_zeroed={} failsafe={} failsafe_entries={} "
       "control_seq={} echo_seq={} engine_flags={} deadman_seen={} telemetry_subscribers={} tx_telemetry={} "
       "telemetry_malformed={} telemetry_rejects={}",
-      sensors_.isSynthesized() ? "SYNTHESIZED" : "MEASURED", pilot_.isSpoofed() ? "SPOOFED" : "REAL",
-      stats_.rx_state, stats_.engine_malformed, stats_.engine_unexpected, stats_.engine_foreign,
-      stats_.sensor_frames, stats_.sensor_skipped, stats_.pilot_samples, stats_.motor_commands,
-      stats_.tx_subscribe, stats_.tx_control, stats_.tx_control_failsafe, toString(failsafe_),
-      stats_.failsafe_entries, control_seq_, echo_seq_, engine_flags_, stats_.deadman_seen, subscribers_.size(),
-      stats_.tx_telemetry, stats_.telemetry_malformed, stats_.telemetry_subscriber_rejects);
+      sensors_.isSynthesized() ? "SYNTHESIZED" : "MEASURED", pilot_.isSpoofed() ? "SPOOFED" : "REAL", stats_.rx_state,
+      stats_.engine_malformed, stats_.engine_unexpected, stats_.engine_foreign, stats_.sensor_frames,
+      stats_.sensor_skipped, stats_.pilot_samples, stats_.motor_commands, stats_.tx_subscribe, stats_.tx_control,
+      stats_.tx_control_failsafe, toString(failsafe_), stats_.failsafe_entries, control_seq_, echo_seq_, engine_flags_,
+      stats_.deadman_seen, subscribers_.size(), stats_.tx_telemetry, stats_.telemetry_malformed,
+      stats_.telemetry_subscriber_rejects);
 }
 
 }  // namespace astrosim::fcbridge

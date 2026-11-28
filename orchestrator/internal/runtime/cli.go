@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"sort"
 	"strconv"
 	"strings"
@@ -258,13 +259,60 @@ func (c *CLI) Stop(ctx context.Context, name string, grace time.Duration) error 
 	return err
 }
 
-// Remove implements Runtime. A missing container is success.
+// removeWaits is the wait before each re-check of a container whose `rm -f`
+// failed. The total (14.5 s) bounds how long Remove polls before its final
+// `rm -f` retry.
+var removeWaits = []time.Duration{
+	250 * time.Millisecond, 250 * time.Millisecond, 500 * time.Millisecond, 500 * time.Millisecond,
+	time.Second, time.Second, time.Second, time.Second, time.Second, time.Second, time.Second,
+	time.Second, time.Second, time.Second, time.Second, time.Second, time.Second,
+}
+
+// sleep waits for d or until ctx ends, returning ctx's error in the latter
+// case. It is a variable so tests can replace the real wait.
+var sleep = func(ctx context.Context, d time.Duration) error {
+	t := time.NewTimer(d)
+	defer t.Stop()
+	select {
+	case <-t.C:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+// Remove implements Runtime. A missing container is success, and so is a
+// failed `rm -f` after which the container is gone anyway: rootless podman
+// can delete the container and then fail tidying its network namespace
+// ("rootless netns: kill network process: permission denied", typically
+// Ubuntu's AppArmor profile restricting podman's network helper), exiting
+// 125. Podman then finishes the removal by itself some seconds later, and
+// running `rm -f` again only hits the same blocked teardown. So after a
+// failure Remove polls Inspect on the removeWaits schedule (about 14.5 s in
+// all) until the container is gone, treating an Inspect error as "unknown"
+// and polling on. If the container is still there it runs `rm -f` once
+// more. It returns the first error, wrapped, if that also fails.
 func (c *CLI) Remove(ctx context.Context, name string) error {
 	_, err := c.do(ctx, "rm", "-f", name)
-	if errors.Is(err, ErrNotFound) {
+	if err == nil || errors.Is(err, ErrNotFound) {
 		return nil
 	}
-	return err
+	for _, d := range removeWaits {
+		if serr := sleep(ctx, d); serr != nil {
+			return fmt.Errorf("remove %s: %w (waiting: %w)", name, err, serr)
+		}
+		if _, ierr := c.Inspect(ctx, name); errors.Is(ierr, ErrNotFound) {
+			slog.Warn("container removed although the runtime reported an error",
+				"container", name, "err", err)
+			return nil
+		}
+	}
+	if _, rerr := c.do(ctx, "rm", "-f", name); rerr == nil || errors.Is(rerr, ErrNotFound) {
+		slog.Warn("container removed on retry after the runtime reported an error",
+			"container", name, "err", err)
+		return nil
+	}
+	return fmt.Errorf("remove %s: %w", name, err)
 }
 
 // Wait implements Runtime.
@@ -438,6 +486,78 @@ func (c *CLI) FollowLogs(ctx context.Context, name string, opts LogOptions, stdo
 	ce := &CommandError{Args: args, ExitCode: code, Stderr: tw.text()}
 	if isNotFoundText(ce.Stderr) {
 		return fmt.Errorf("%w: %w", ErrNotFound, ce)
+	}
+	return ce
+}
+
+// syncWriter serialises writes to w, so that the two output streams of one
+// command can share a destination.
+type syncWriter struct {
+	mu sync.Mutex
+	w  io.Writer
+}
+
+func (s *syncWriter) Write(p []byte) (int, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.w.Write(p)
+}
+
+// Pull implements Runtime. Both podman and docker accept `pull <image>`.
+// Podman writes its progress to stderr and docker to stdout, so both streams
+// go to progress; stderr is also kept (by tailWriter) to explain a failure.
+func (c *CLI) Pull(ctx context.Context, image string, progress io.Writer) error {
+	s, ok := c.cmd.(Streamer)
+	if !ok {
+		return fmt.Errorf("runtime: %T cannot stream command output", c.cmd)
+	}
+	if progress == nil {
+		progress = io.Discard
+	}
+	out := &syncWriter{w: progress}
+	tw := &tailWriter{w: out}
+	args := []string{"pull", image}
+	code, err := s.Stream(ctx, out, tw, c.bin, args...)
+	if err != nil {
+		return err
+	}
+	if code == 0 {
+		return nil
+	}
+	return classifyPull(&CommandError{Args: args, ExitCode: code, Stderr: tw.text()})
+}
+
+// pullClasses maps fragments of a failed pull's error text to the sentinel
+// error they mean. The first class with a matching fragment wins, so the
+// order matters: a DNS failure says "no such host", which must not be
+// mistaken for a missing image (isNotFoundText would do exactly that).
+var pullClasses = []struct {
+	err       error
+	fragments []string
+}{
+	{ErrNoSpace, []string{"no space left on device"}},
+	{ErrDenied, []string{"unauthorized", "denied", "authentication required", "403 forbidden"}},
+	{ErrUnreachable, []string{
+		"dial tcp", "no such host", "i/o timeout", "connection refused", "network is unreachable",
+		"tls handshake timeout", "temporary failure in name resolution", "connection reset",
+	}},
+	{ErrNotFound, []string{
+		"manifest unknown", "name unknown", "not found", "no matching manifest",
+		"no image found in manifest list", "no image found in image index",
+	}},
+}
+
+// classifyPull wraps ce with the sentinel error its text indicates (see
+// pullClasses), or returns ce itself when the text is not recognised. The
+// result matches both the sentinel (errors.Is) and *CommandError (errors.As).
+func classifyPull(ce *CommandError) error {
+	text := strings.ToLower(ce.Stderr)
+	for _, class := range pullClasses {
+		for _, f := range class.fragments {
+			if strings.Contains(text, f) {
+				return fmt.Errorf("%w: %w", class.err, ce)
+			}
+		}
 	}
 	return ce
 }

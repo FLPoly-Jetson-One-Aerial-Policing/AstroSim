@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -113,6 +114,9 @@ func (s *Session) preflight(ctx context.Context) supervisor.PreflightReport {
 	var rep supervisor.PreflightReport
 	for _, id := range s.ids {
 		d := s.defs[id]
+		if slices.Contains(rep.MissingImages, d.Image) {
+			continue // two components may share an image
+		}
 		ok, err := s.opts.Runtime.ImageExists(ctx, d.Image)
 		if err != nil {
 			return supervisor.PreflightReport{
@@ -122,6 +126,9 @@ func (s *Session) preflight(ctx context.Context) supervisor.PreflightReport {
 		}
 		if !ok {
 			rep.MissingImages = append(rep.MissingImages, d.Image)
+			if s.opts.PullMissing && runtime.Pullable(d.Image) {
+				rep.Pullable = append(rep.Pullable, d.Image)
+			}
 		}
 	}
 	if len(rep.MissingImages) > 0 {

@@ -18,7 +18,8 @@ namespace {
 /// @param hi Upper bound.
 void requireRange(const std::string& what, float v, float lo, float hi) {
   if (!std::isfinite(v) || v < lo || v > hi) {
-    throw std::invalid_argument(what + " must be finite and in [" + std::to_string(lo) + ", " + std::to_string(hi) + "]");
+    throw std::invalid_argument(what + " must be finite and in [" + std::to_string(lo) + ", " + std::to_string(hi) +
+                                "]");
   }
 }
 

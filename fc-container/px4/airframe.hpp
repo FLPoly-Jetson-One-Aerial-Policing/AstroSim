@@ -21,8 +21,8 @@ inline constexpr const char* kAirframeModelName = "astrosim_aircraft";
 
 /// @brief Settings that are not aircraft data (they come from the bridge configuration, [px4]).
 struct AirframeOptions {
-  double max_tilt_deg = 25;        ///< Tilt of a full roll/pitch stick (MPC_MAN_TILT_MAX), degrees.
-  double max_yaw_rate_dps = 45;    ///< Yaw rate of a full yaw stick (MPC_MAN_Y_MAX), degrees per second.
+  double max_tilt_deg = 25;      ///< Tilt of a full roll/pitch stick (MPC_MAN_TILT_MAX), degrees.
+  double max_yaw_rate_dps = 45;  ///< Yaw rate of a full yaw stick (MPC_MAN_Y_MAX), degrees per second.
 };
 
 /**
@@ -34,18 +34,18 @@ struct AirframeOptions {
  * The gains below are derived from the aircraft file instead.
  */
 struct AirframeTuning {
-  double rotor_lag_s = 0;              ///< Slowest rotor lag, (time_constant_up + time_constant_down) / 2, s.
-  double rate_bandwidth_rad_s = 0;     ///< Targeted rate-loop crossover, 0.6 / rotor_lag_s.
-  double roll_authority_rad_s2 = 0;    ///< Angular acceleration per unit normalized roll command.
-  double pitch_authority_rad_s2 = 0;   ///< Same, pitch.
-  double yaw_authority_rad_s2 = 0;     ///< Same, yaw.
-  double roll_rate_p = 0;              ///< MC_ROLLRATE_P.
-  double pitch_rate_p = 0;             ///< MC_PITCHRATE_P.
-  double yaw_rate_p = 0;               ///< MC_YAWRATE_P.
-  double roll_pitch_att_p = 0;         ///< MC_ROLL_P and MC_PITCH_P.
-  double yaw_att_p = 0;                ///< MC_YAW_P.
-  double xy_vel_p_acc = 0;             ///< MPC_XY_VEL_P_ACC.
-  double xy_p = 0;                     ///< MPC_XY_P.
+  double rotor_lag_s = 0;             ///< Slowest rotor lag, (time_constant_up + time_constant_down) / 2, s.
+  double rate_bandwidth_rad_s = 0;    ///< Targeted rate-loop crossover, 0.6 / rotor_lag_s.
+  double roll_authority_rad_s2 = 0;   ///< Angular acceleration per unit normalized roll command.
+  double pitch_authority_rad_s2 = 0;  ///< Same, pitch.
+  double yaw_authority_rad_s2 = 0;    ///< Same, yaw.
+  double roll_rate_p = 0;             ///< MC_ROLLRATE_P.
+  double pitch_rate_p = 0;            ///< MC_PITCHRATE_P.
+  double yaw_rate_p = 0;              ///< MC_YAWRATE_P.
+  double roll_pitch_att_p = 0;        ///< MC_ROLL_P and MC_PITCH_P.
+  double yaw_att_p = 0;               ///< MC_YAW_P.
+  double xy_vel_p_acc = 0;            ///< MPC_XY_VEL_P_ACC.
+  double xy_p = 0;                    ///< MPC_XY_P.
 };
 
 /// @brief A generated airframe.
@@ -53,8 +53,8 @@ struct Airframe {
   int autostart_id = kAirframeAutostartId;  ///< SYS_AUTOSTART value selecting the script.
   std::string file_name;                    ///< `<id>_astrosim_aircraft`.
   std::string text;                         ///< Script contents.
-  double hover_thrust = 0;                  ///< MPC_THR_HOVER: loaded weight over the sum of the rotors' maximum thrust.
-  AirframeTuning tuning;                    ///< The derived control gains written to the script.
+  double hover_thrust = 0;  ///< MPC_THR_HOVER: loaded weight over the sum of the rotors' maximum thrust.
+  AirframeTuning tuning;    ///< The derived control gains written to the script.
 };
 
 /**

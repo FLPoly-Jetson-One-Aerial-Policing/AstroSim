@@ -1,6 +1,5 @@
-/**
- * @file probe.cpp
- * @brief astrosim-fc-probe: command-line client for the flight computer telemetry protocol (port 8766).
+/*
+ * astrosim-fc-probe: command-line client for the flight computer telemetry protocol (port 8766).
  *
  * Depends only on shared/proto and POSIX sockets; it does not use gz. `--telemetry` subscribes and prints each
  * FcTelemetry as one line, including the provenance flags that mark synthesized sensors and spoofed pilot input.

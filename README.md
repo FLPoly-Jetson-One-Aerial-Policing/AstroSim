@@ -32,23 +32,25 @@ Each part is a separate program that talks to the others over a local network co
 
 ## Starting the simulator
 
-You need Docker or Podman installed and running, and the simulator images built once (a developer does this; see the links below).
+You need Docker or Podman installed and running, and an internet connection the first time. Nothing else: the simulator downloads its own parts.
 
-1. Run `astrosim` (on Windows, `astrosim.exe`). A page opens in your web browser. If it does not, open `http://127.0.0.1:8770`.
-2. Press **Start**.
-3. Watch the list of parts. Each shows a status:
+1. Download the archive for your computer from the [Releases page](https://github.com/FLPoly-Jetson-One-Aerial-Policing/AstroSim/releases) (`astrosim-<version>-windows-amd64.zip` for Windows, `astrosim-<version>-linux-amd64.tar.gz` for Linux) and unpack it. The `nightly` entry is the latest unfinished build; pick a numbered release unless you want that.
+2. Run `astrosim` (on Windows, `astrosim.exe`). A page opens in your web browser. If it does not, open `http://127.0.0.1:8770`. The first time, the page says it is downloading the simulator (a large download, so it can take a few minutes); this happens once for each version. Press **Cancel download** to stop it; **Start** downloads again.
+3. Press **Start**.
+4. Watch the list of parts. Each shows a status:
    - **Starting**: the part is launching and not ready yet.
    - **Ready**: the part is working. When both are ready the page says the simulation is running.
    - **Recovering**: something stopped working and AstroSim is restarting it. This usually fixes itself within a few seconds.
    - **Failed**: AstroSim gave up. Open the details on the page to see what went wrong, then press **Start** to try again.
-   - **Not installed yet**: an image has not been built. The page shows the command a developer needs to run.
-4. To quit, press `Ctrl+C` in the window that `astrosim` is running in, or close that window. This stops the simulation. Closing the browser tab does not.
+   - **Downloading**: the simulator parts are being downloaded, as above. If the download fails (for example there is no internet), the page says why and tries again by itself.
+   - **Not installed yet**: an image is missing. A developer's own build shows the command to build it.
+5. To quit, press `Ctrl+C` in the window that `astrosim` is running in, or close that window. This stops the simulation. Closing the browser tab does not.
 
 More options and how it works: [orchestrator/README.md](orchestrator/README.md).
 
 ## What you need
 
-- **To run it:** [Docker](https://www.docker.com/products/docker-desktop/) or [Podman](https://podman.io/) on Windows, macOS or Linux, running, plus the `astrosim` program and the simulator images, which a developer builds once. Nothing else.
+- **To run it:** [Docker](https://www.docker.com/products/docker-desktop/) or [Podman](https://podman.io/), running, on Windows or Linux, plus the `astrosim` program from the [Releases page](https://github.com/FLPoly-Jetson-One-Aerial-Policing/AstroSim/releases). The simulator images download themselves the first time you run it. Nothing else. (Releases are published for Windows and Linux on 64-bit Intel/AMD processors. On other systems, a developer builds the program and the images; see the links below.)
 - **To build it:** a Linux machine (or an automated build pipeline) with Docker. Developers, see the links below.
 
 ## Running the containers by hand (developers)
@@ -114,4 +116,5 @@ docker exec fc astrosim-fc-probe --telemetry
 | Plug in a different flight computer | [shared/fc/FC_INTERFACE.md](shared/fc/FC_INTERFACE.md) |
 | Show flight computer data on a display | [shared/proto/FC_TELEMETRY.md](shared/proto/FC_TELEMETRY.md) |
 | Understand the background research and design decisions | [docs/](docs/) |
+| Cut a release, or understand versions, nightly builds and the CI pipeline | [docs/releasing.md](docs/releasing.md) |
 | Edit the aircraft data file (schema, units, keys) | [shared/aircraft/AIRCRAFT.md](shared/aircraft/AIRCRAFT.md) |

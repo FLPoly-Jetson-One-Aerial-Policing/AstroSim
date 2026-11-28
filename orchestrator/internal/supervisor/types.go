@@ -9,6 +9,9 @@ type Phase string
 const (
 	// PhaseChecking means a preflight check is running.
 	PhaseChecking Phase = "checking"
+	// PhaseDownloading means missing images are being downloaded. Stop
+	// cancels the download.
+	PhaseDownloading Phase = "downloading"
 	// PhaseUnavailable means preflight found a problem; the stack cannot
 	// start until it is fixed. The check is repeated automatically.
 	PhaseUnavailable Phase = "unavailable"
@@ -67,6 +70,8 @@ const (
 	ReasonInvalidConfig = "invalid_config"
 	// ReasonRestartLimit: the restart budget of a group is used up.
 	ReasonRestartLimit = "restart_limit"
+	// ReasonPullCancelled: in stopped, the user cancelled a download.
+	ReasonPullCancelled = "pull_cancelled"
 )
 
 // Problem codes a PreflightReport may carry.
@@ -81,10 +86,24 @@ const (
 	ProblemImagesMissing = "images_missing"
 	// ProblemPortBusy: a port a component needs is already in use.
 	ProblemPortBusy = "port_busy"
+	// ProblemPullNetwork: the registry could not be reached.
+	ProblemPullNetwork = "pull_network"
+	// ProblemPullDenied: the registry refused access.
+	ProblemPullDenied = "pull_denied"
+	// ProblemPullNotFound: this version's image (or its platform) does not exist.
+	ProblemPullNotFound = "pull_not_found"
+	// ProblemPullNoSpace: the disk is full.
+	ProblemPullNoSpace = "pull_no_space"
+	// ProblemPullFailed: any other download failure.
+	ProblemPullFailed = "pull_failed"
 )
 
 // RecheckInterval is how often an unavailable stack repeats its preflight.
 const RecheckInterval = 5 * time.Second
+
+// PullBackoff is the wait before download attempt n+1 after n consecutive
+// failures; the last entry repeats.
+var PullBackoff = []time.Duration{15 * time.Second, 30 * time.Second, time.Minute, 2 * time.Minute, 5 * time.Minute}
 
 // RestartPolicy bounds automatic recovery.
 type RestartPolicy struct {
@@ -135,6 +154,9 @@ const (
 	// Honoured in stopped. A clean result returns to stopped, a problem
 	// moves to unavailable.
 	CheckRequested
+	// PullDone reports the result of an ActionPull (Gen, Report.Problem and
+	// Report.Detail). An empty Problem means every image was downloaded.
+	PullDone
 	// PreflightDone reports the result of a Preflight action (Gen, Report).
 	PreflightDone
 	// Launched reports that a Launch action created and started the
@@ -171,6 +193,9 @@ const (
 	TimerStable
 	// TimerRecheck repeats the preflight while unavailable. Key is empty.
 	TimerRecheck
+	// TimerPullRetry ends the hold after a failed download, so the next
+	// check downloads again. Key is empty.
+	TimerPullRetry
 )
 
 // PreflightReport is the result of a preflight check.
@@ -179,6 +204,8 @@ type PreflightReport struct {
 	Problem string
 	// MissingImages lists the images that are not built.
 	MissingImages []string
+	// Pullable is the subset of MissingImages the driver may download.
+	Pullable []string
 	// BusyPorts lists the ports in use, for example "8765/udp".
 	BusyPorts []string
 	// Detail is a technical explanation for logs and the failure panel.
@@ -230,6 +257,12 @@ const (
 	// Timer, Key and Gen after After. A timer is never cancelled; stale
 	// firings are ignored by the supervisor.
 	ActionSetTimer
+	// ActionPull asks the driver to download Images, answering PullDone
+	// with Gen.
+	ActionPull
+	// ActionCancelPull asks the driver to abort the download of generation
+	// Gen. The driver need not answer it.
+	ActionCancelPull
 	// ActionExit tells the driver the process may exit with Code.
 	ActionExit
 )
@@ -252,6 +285,8 @@ type Action struct {
 	Key string
 	// After is the timer delay.
 	After time.Duration
+	// Images lists the images to download for ActionPull.
+	Images []string
 	// Code is the exit status for ActionExit.
 	Code int
 }

@@ -49,7 +49,7 @@ using Geometry = std::variant<Box, Cylinder, Sphere>;
 
 /** @brief One body collision primitive (`[[collision]]`). */
 struct Collision {
-  std::string name;  ///< Unique among collisions; matches [A-Za-z0-9_]+.
+  std::string name;   ///< Unique among collisions; matches [A-Za-z0-9_]+.
   Geometry geometry;  ///< Shape and size.
   Vec3 xyz_m;         ///< Primitive origin in the body frame.
   Vec3 rpy_rad;       ///< Orientation, SDF fixed-axis roll-pitch-yaw.
@@ -57,18 +57,18 @@ struct Collision {
 
 /** @brief A motor + propeller definition shared by several motors (`[[rotor_type]]`). */
 struct RotorType {
-  std::string name;                    ///< Unique among rotor types; matches [A-Za-z0-9_]+.
-  double prop_radius_m;                ///< Propeller radius, > 0.
-  double collision_thickness_m;        ///< Thickness of the prop-disc collision cylinder, > 0.
-  double rotating_mass_kg;             ///< Mass of the rotating parts (prop + motor rotor), > 0.
-  Inertia rotating_inertia_kg_m2;      ///< Spin inertia about the hub; file gives ixx, iyy, izz only (products 0).
-  double max_rot_velocity_rad_s;       ///< Rotor speed at full power, > 0.
-  double motor_constant_n_s2;          ///< Thrust = motor_constant * w^2, N/(rad/s)^2, > 0.
-  double moment_constant_m;            ///< Drag torque / thrust, m, > 0.
-  double time_constant_up_s;           ///< First-order spin-up time constant, > 0.
-  double time_constant_down_s;         ///< First-order spin-down time constant, > 0.
-  double rotor_drag_coefficient;       ///< Rotor (blade-flapping) drag coefficient, >= 0.
-  double rolling_moment_coefficient;   ///< Rolling moment coefficient, >= 0.
+  std::string name;                   ///< Unique among rotor types; matches [A-Za-z0-9_]+.
+  double prop_radius_m;               ///< Propeller radius, > 0.
+  double collision_thickness_m;       ///< Thickness of the prop-disc collision cylinder, > 0.
+  double rotating_mass_kg;            ///< Mass of the rotating parts (prop + motor rotor), > 0.
+  Inertia rotating_inertia_kg_m2;     ///< Spin inertia about the hub; file gives ixx, iyy, izz only (products 0).
+  double max_rot_velocity_rad_s;      ///< Rotor speed at full power, > 0.
+  double motor_constant_n_s2;         ///< Thrust = motor_constant * w^2, N/(rad/s)^2, > 0.
+  double moment_constant_m;           ///< Drag torque / thrust, m, > 0.
+  double time_constant_up_s;          ///< First-order spin-up time constant, > 0.
+  double time_constant_down_s;        ///< First-order spin-down time constant, > 0.
+  double rotor_drag_coefficient;      ///< Rotor (blade-flapping) drag coefficient, >= 0.
+  double rolling_moment_coefficient;  ///< Rolling moment coefficient, >= 0.
 };
 
 /** @brief Rotor spin direction seen from above (looking down -z). */
@@ -95,14 +95,14 @@ struct Simulation {
 
 /** @brief A complete, validated aircraft description. Only obtainable from parseAircraft()/loadAircraft(). */
 struct Aircraft {
-  std::string name;                   ///< Display/log label (`[aircraft] name`), non-empty.
-  MassProperties airframe;            ///< Empty aircraft INCLUDING its rotors (`[airframe]`).
-  MassProperties pilot;               ///< Seated pilot (`[pilot]`).
-  std::vector<Collision> collisions;  ///< Body collision primitives, at least one.
-  std::vector<RotorType> rotor_types; ///< Rotor definitions, at least one.
-  std::vector<Motor> motors;          ///< Motors in protocol order, at least one.
-  Drag drag;                          ///< Airframe drag.
-  Simulation simulation;              ///< Simulation knobs.
+  std::string name;                    ///< Display/log label (`[aircraft] name`), non-empty.
+  MassProperties airframe;             ///< Empty aircraft INCLUDING its rotors (`[airframe]`).
+  MassProperties pilot;                ///< Seated pilot (`[pilot]`).
+  std::vector<Collision> collisions;   ///< Body collision primitives, at least one.
+  std::vector<RotorType> rotor_types;  ///< Rotor definitions, at least one.
+  std::vector<Motor> motors;           ///< Motors in protocol order, at least one.
+  Drag drag;                           ///< Airframe drag.
+  Simulation simulation;               ///< Simulation knobs.
 
   /**
    * @brief The rotor type of a motor.

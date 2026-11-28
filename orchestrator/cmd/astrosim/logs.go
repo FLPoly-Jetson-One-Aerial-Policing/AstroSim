@@ -19,3 +19,6 @@ func (s sessionLogs) Begin(component string, gen uint64, container, containerID,
 
 // Note implements session.LogCapture.
 func (s sessionLogs) Note(component, msg string) { s.r.Note(component, msg) }
+
+// Line implements session.LogCapture.
+func (s sessionLogs) Line(component, line string) { s.r.Line(component, line) }

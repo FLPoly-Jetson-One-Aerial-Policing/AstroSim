@@ -27,6 +27,7 @@ import (
 
 	"github.com/FLPoly-Jetson-One-Aerial-Policing/AstroSim/orchestrator/internal/api"
 	"github.com/FLPoly-Jetson-One-Aerial-Policing/AstroSim/orchestrator/internal/browser"
+	"github.com/FLPoly-Jetson-One-Aerial-Policing/AstroSim/orchestrator/internal/component"
 	"github.com/FLPoly-Jetson-One-Aerial-Policing/AstroSim/orchestrator/internal/components"
 	"github.com/FLPoly-Jetson-One-Aerial-Policing/AstroSim/orchestrator/internal/config"
 	"github.com/FLPoly-Jetson-One-Aerial-Policing/AstroSim/orchestrator/internal/instance"
@@ -35,6 +36,7 @@ import (
 	"github.com/FLPoly-Jetson-One-Aerial-Policing/AstroSim/orchestrator/internal/runtime"
 	"github.com/FLPoly-Jetson-One-Aerial-Policing/AstroSim/orchestrator/internal/session"
 	"github.com/FLPoly-Jetson-One-Aerial-Policing/AstroSim/orchestrator/internal/status"
+	"github.com/FLPoly-Jetson-One-Aerial-Policing/AstroSim/orchestrator/internal/supervisor"
 	goruntime "runtime"
 )
 
@@ -59,6 +61,58 @@ func main() {
 	os.Exit(run(os.Args[1:], os.Getenv, os.Stdout, os.Stderr))
 }
 
+// releaseImages returns the image settings this binary was built with.
+func releaseImages() components.Images {
+	return components.Images{Repository: imageRepository, Tag: imageTag}
+}
+
+// buildError reports image settings baked into the binary at build time that
+// cannot be used. It is a defect of the build, not of the user's
+// configuration, so it exits differently from a usage error.
+type buildError struct{ err error }
+
+func (e *buildError) Error() string {
+	return "this build's image settings are invalid: " + e.err.Error()
+}
+
+func (e *buildError) Unwrap() error { return e.err }
+
+// componentDefs returns the component definitions for this run: the built-in
+// ones with the build's image references applied, checked against cfg. The
+// per-component overrides of cfg are not applied here (see
+// config.Config.ApplyOverrides), so a "components.<id>.image" setting still
+// wins over the release image. A broken build is a *buildError; any other
+// error comes from cfg.Validate.
+func componentDefs(cfg config.Config, im components.Images) ([]component.Definition, error) {
+	if err := im.Validate(); err != nil {
+		return nil, &buildError{err}
+	}
+	defs := im.Apply(components.All())
+	if err := cfg.Validate(goruntime.GOOS, defs); err != nil {
+		return nil, err
+	}
+	return defs, nil
+}
+
+// versionText is the output of --version: "astrosim <version>", and for a
+// release build a second line "images <engine image> <fc image>" naming the
+// images it downloads (scripts read it). A development build prints only the
+// first line.
+func versionText(im components.Images) (string, error) {
+	if err := im.Validate(); err != nil {
+		return "", &buildError{err}
+	}
+	text := fmt.Sprintf("astrosim %s\n", version)
+	if im.Release() {
+		refs := []string{"images"}
+		for _, d := range im.Apply(components.All()) {
+			refs = append(refs, d.Image)
+		}
+		text += strings.Join(refs, " ") + "\n"
+	}
+	return text, nil
+}
+
 // run is main without the process-global parts, and returns the exit code.
 func run(args []string, getenv func(string) string, stdout, stderr io.Writer) int {
 	cfg, err := config.LoadTo(stderr, args, getenv, os.ReadFile)
@@ -81,12 +135,23 @@ func run(args []string, getenv func(string) string, stdout, stderr io.Writer) in
 		fmt.Fprintln(stdout, root)
 		return exitOK
 	}
+	images := releaseImages()
 	if cfg.ShowVersion {
-		fmt.Fprintf(stdout, "astrosim %s\n", version)
+		text, err := versionText(images)
+		if err != nil {
+			fmt.Fprintf(stderr, "astrosim: %v\n", err)
+			return exitFailure
+		}
+		fmt.Fprint(stdout, text)
 		return exitOK
 	}
-	defs := components.All()
-	if err := cfg.Validate(goruntime.GOOS, defs); err != nil {
+	defs, err := componentDefs(cfg, images)
+	var broken *buildError
+	if errors.As(err, &broken) {
+		fmt.Fprintf(stderr, "astrosim: %v\n", broken)
+		return exitFailure
+	}
+	if err != nil {
 		fmt.Fprintf(stderr, "astrosim: invalid configuration:\n%s\nRun \"astrosim --help\" for usage.\n", indent(err.Error()))
 		return exitUsage
 	}
@@ -153,6 +218,9 @@ func run(args []string, getenv func(string) string, stdout, stderr io.Writer) in
 	if rootErr != nil {
 		log.Warn("session logs are not being saved to files", "err", rootErr)
 	}
+	if images.Release() {
+		log.Info("release build: missing images are downloaded when pull is missing", "repository", images.Repository, "tag", images.Tag, "pull", cfg.Pull)
+	}
 	recovered := make(chan struct{})
 	if rec != nil {
 		go func() {
@@ -177,9 +245,13 @@ func run(args []string, getenv func(string) string, stdout, stderr io.Writer) in
 		log.Info("container runtime found", "runtime", info.Name, "version", info.Version, "path", info.Path)
 		// Only while holding the lock is it safe to remove every managed
 		// container: they can only be leftovers of a crashed run.
-		if _, err := session.CleanupStale(pingCtx, rt); err != nil {
+		// Removing a leftover can poll for about 15 s per container, so it gets its own budget
+		// rather than what is left of the ping's.
+		cleanCtx, cancelClean := context.WithTimeout(context.Background(), cleanupTimeout)
+		if _, err := session.CleanupStale(cleanCtx, rt); err != nil {
 			log.Warn("could not remove leftover containers", "err", err)
 		}
+		cancelClean()
 	}
 	cancelPing()
 
@@ -203,6 +275,7 @@ func run(args []string, getenv func(string) string, stdout, stderr io.Writer) in
 		SessionID:    sessionID,
 		Version:      version,
 		Logs:         logCapture(rec),
+		PullMissing:  cfg.Pull == config.PullMissing,
 		LogDir:       rec.Dir(),
 		Broadcaster:  bc,
 		Logger:       log,
@@ -286,11 +359,18 @@ func logRoot(cfg config.Config, goos string, getenv func(string) string) (string
 	if cfg.LogDir != "" {
 		return filepath.Abs(cfg.LogDir)
 	}
-	home, err := os.UserHomeDir()
-	if err != nil {
-		home = ""
+	return logs.DefaultDir(goos, getenv, homeDir(goos, getenv))
+}
+
+// homeDir returns the user's home directory for goos as getenv reports it
+// (USERPROFILE on windows, HOME elsewhere), or "" when unset. It reads only
+// getenv, never the process environment, so the injected environment is the
+// single source of settings.
+func homeDir(goos string, getenv func(string) string) string {
+	if goos == "windows" {
+		return getenv("USERPROFILE")
 	}
-	return logs.DefaultDir(goos, getenv, home)
+	return getenv("HOME")
 }
 
 // logCapture returns the session's log capture for rec, or nil when file
@@ -439,7 +519,8 @@ func refuseCleanup(lockPath string, stdout io.Writer, log *slog.Logger) int {
 	return exitFailure
 }
 
-// autostart presses Start once the first check has reached "stopped".
+// autostart presses Start once the first check, and any download it began,
+// has reached "stopped". It does nothing when the user cancelled the download.
 func autostart(sess *session.Session, bc *status.Broadcaster, ctx context.Context, log *slog.Logger) {
 	ch, cancel := bc.Subscribe()
 	defer cancel()
@@ -450,6 +531,12 @@ func autostart(sess *session.Session, bc *status.Broadcaster, ctx context.Contex
 		case snap := <-ch:
 			if snap.Phase != "stopped" {
 				continue
+			}
+			if snap.Reason.Code == supervisor.ReasonPullCancelled {
+				// The user cancelled the download: pressing Start would
+				// begin it again.
+				log.Info("autostart cancelled with the download")
+				return
 			}
 			if err := sess.Start(); err != nil {
 				log.Warn("autostart failed", "err", err)

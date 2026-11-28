@@ -1,0 +1,7 @@
+# Code owners are asked to review pull requests, and the main-must-PR ruleset requires an
+# approval from one of them (require_code_owner_review). Every pull request therefore needs
+# one approval from a maintainer plus one more from anyone.
+#
+# Whoever is added to the "maintainers" team becomes a code owner, with no change to this file.
+# GitHub reads CODEOWNERS from the default branch, so this takes effect once it is merged.
+* @FLPoly-Jetson-One-Aerial-Policing/maintainers

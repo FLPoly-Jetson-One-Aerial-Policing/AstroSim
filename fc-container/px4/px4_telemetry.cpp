@@ -102,8 +102,7 @@ void Px4Telemetry::onMessage(const mavlink_message_t& msg, fc::TimePoint now) {
       estimator_flags_ = e.flags;
       break;
     }
-    default:
-      break;
+    default: break;
   }
 }
 
@@ -131,7 +130,8 @@ fc::FcTelemetry Px4Telemetry::build(bool connected, bool mode_refused) const {
   std::uint16_t w = 0;
   if (!gps_seen_ || gps_fix_ < proto::kGps3dFix) w |= proto::kWarnGpsLost;
   const std::uint16_t need = kEstAttitude | kEstVelocityVert | kEstPosVertAbs;
-  if (!estimator_seen_ || (estimator_flags_ & need) != need || (estimator_flags_ & (kEstGpsGlitch | kEstAccelError)) != 0) {
+  if (!estimator_seen_ || (estimator_flags_ & need) != need ||
+      (estimator_flags_ & (kEstGpsGlitch | kEstAccelError)) != 0) {
     w |= proto::kWarnEkfUnhealthy;
   }
   if (rc_present_ && !rc_healthy_) w |= proto::kWarnPilotLost;

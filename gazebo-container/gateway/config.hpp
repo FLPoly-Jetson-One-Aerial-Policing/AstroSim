@@ -1,6 +1,5 @@
-/**
- * @file config.hpp
- * @brief Gateway configuration: TOML file plus ASTROSIM_* environment overrides, validated up front.
+/*
+ * Gateway configuration: TOML file plus ASTROSIM_* environment overrides, validated up front.
  */
 #pragma once
 #include <cstddef>

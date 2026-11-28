@@ -104,7 +104,6 @@ class FakePilot : public fc::PilotSource {
 /** @brief Fixture owning the bridge, fakes and a manual clock. */
 class BridgeTest : public ::testing::Test {
  protected:
-
   void advance(milliseconds d) { now += d; }
   /** @brief Step the bridge in 1 ms increments for @p d. */
   void run(milliseconds d) {
@@ -396,8 +395,8 @@ TEST_F(BridgeTest, TelemetryMotorsAreTheOnesActuallySent) {
   EXPECT_EQ(telemetrySent().back().second.motors, (std::array<float, 8>{}));
   armedCommand(0.25f);
   run(milliseconds(100));
-  EXPECT_EQ(telemetrySent().back().second.motors, (std::array<float, 8>{0.25f, 0.25f, 0.25f, 0.25f, 0.25f, 0.25f,
-                                                                         0.25f, 0.25f}));
+  EXPECT_EQ(telemetrySent().back().second.motors,
+            (std::array<float, 8>{0.25f, 0.25f, 0.25f, 0.25f, 0.25f, 0.25f, 0.25f, 0.25f}));
 }
 
 TEST_F(BridgeTest, TelemetrySubscriberExpiresAndKeepaliveRenews) {

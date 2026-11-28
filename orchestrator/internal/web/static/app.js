@@ -5,6 +5,7 @@ const TEXT = {
   // Sentence shown under the main button for each phase.
   phase: {
     checking: "Checking that everything is ready…",
+    downloading: "Downloading the simulator. This happens once for each version and can take several minutes…",
     unavailable: "AstroSim can't start yet.",
     stopped: "Everything is ready. Press Start to launch the simulator.",
     starting: "Starting the simulator. This can take a minute…",
@@ -29,21 +30,36 @@ const TEXT = {
     launch_failed: "One part of the simulator could not be started.",
     invalid_config: "One part of the simulator rejected its settings.",
     restart_limit: "The simulator kept failing, so AstroSim gave up restarting it.",
+    pull_network: "AstroSim can't reach the download server. Check your internet connection; AstroSim will try again by itself.",
+    pull_denied: "The download server refused access. If you once ran `podman login ghcr.io` (or docker login), log out and AstroSim will try again by itself.",
+    pull_not_found: "This version of the simulator isn't available for download yet, or not for this kind of computer. If AstroSim was just released, wait a few minutes; it will try again by itself.",
+    pull_no_space: "There isn't enough free disk space to download the simulator (it needs a few GB). Free some space; AstroSim will try again by itself.",
+    pull_failed: "AstroSim couldn't download the simulator. It will try again by itself.",
+    pull_cancelled: "The download was cancelled. Press Start to download the simulator and start it.",
   },
-  // Label and look of each component state: [text, icon, tone].
+  // Label and look of each component state: [text, icon, tone]. The icon "spin"
+  // is a turning ring instead of a glyph.
   state: {
     pending: ["Waiting", "○", "idle"],
-    launching: ["Starting", "↻", "warn"],
-    starting: ["Starting", "↻", "warn"],
+    launching: ["Starting", "spin", "warn"],
+    starting: ["Starting", "spin", "warn"],
     ready: ["Ready", "✔", "good"],
     stale: ["Not responding", "▲", "bad"],
-    stopping: ["Stopping", "↻", "warn"],
+    stopping: ["Stopping", "spin", "warn"],
     stopped: ["Stopped", "■", "idle"],
     exited: ["Stopped unexpectedly", "✖", "bad"],
     failed: ["Failed", "✖", "bad"],
   },
-  button: { start: "Start", stop: "Stop", wait: "Please wait", busy: "Working…" },
+  button: { start: "Start", stop: "Stop", cancel: "Cancel download", wait: "Please wait", busy: "Working…" },
   notInstalledNote: "Run this in the AstroSim folder",
+  pullNote: "Or download it yourself by running this in a terminal",
+  // Download progress of one part: badge labels and the line under the badge.
+  download: {
+    active: "Downloading",
+    done: "Downloaded",
+    failed: "Download failed",
+    elapsed: (t) => `Downloading for ${t}`,
+  },
   // The Logs card and the hint on the failed panel.
   logs: {
     heading: "Logs",
@@ -72,6 +88,21 @@ const el = (tag, props = {}, ...children) => {
   return node;
 };
 
+// One turn of a spinner, in milliseconds. It is applied inline, so the CSS
+// needs no copy of it.
+const SPIN_PERIOD_MS = 1200;
+
+// A ring with one coloured arc, turning. The page rebuilds its lists on every
+// status update, which would restart the animation each time; a negative delay
+// puts every new ring at the angle that all rings share at this moment, so it
+// carries on from where the old one was.
+function spinner() {
+  const ring = el("span", { "aria-hidden": "true", class: "spin" });
+  ring.style.animationDuration = `${SPIN_PERIOD_MS}ms`;
+  ring.style.animationDelay = `${-(performance.now() % SPIN_PERIOD_MS)}ms`;
+  return ring;
+}
+
 let snapshot = null;
 let inFlight = false;
 let lost = false;
@@ -94,6 +125,8 @@ function statusSentence(s) {
   if (lost) return TEXT.lost;
   switch (s.phase) {
     case "unavailable":
+    case "stopped":
+      // A stopped stack has a reason only after a cancelled download.
       return reasonText(s) || phaseText(s);
     case "failed":
       return `${phaseText(s)} ${reasonText(s)}`.trim();
@@ -113,7 +146,7 @@ function renderButton(s) {
     b.textContent = TEXT.button.start;
     b.disabled = false;
   } else if (s.canStop) {
-    b.textContent = TEXT.button.stop;
+    b.textContent = s.phase === "downloading" ? TEXT.button.cancel : TEXT.button.stop;
     b.disabled = false;
   } else {
     b.textContent = TEXT.button.wait;
@@ -124,9 +157,35 @@ function renderButton(s) {
 
 function stateBadge(state) {
   const [text, icon, tone] = TEXT.state[state] || [state, "?", "idle"];
-  const spin = tone === "warn" && icon === "↻";
-  const iconEl = el("span", { "aria-hidden": "true", class: spin ? "spin" : "" }, icon);
+  const iconEl = icon === "spin" ? spinner() : el("span", { "aria-hidden": "true" }, icon);
   return el("span", { class: `badge ${tone}` }, iconEl, el("span", {}, text));
+}
+
+// Formats a number of seconds as m:ss.
+function clock(seconds) {
+  const t = Math.max(0, Math.floor(seconds));
+  return `${Math.floor(t / 60)}:${String(t % 60).padStart(2, "0")}`;
+}
+
+// The badge for a component whose image is being downloaded.
+function downloadBadge(d) {
+  if (d.state === "done") {
+    return el("span", { class: "badge good" },
+      el("span", { "aria-hidden": "true" }, "✔"), el("span", {}, TEXT.download.done));
+  }
+  if (d.state === "failed") {
+    return el("span", { class: "badge bad" },
+      el("span", { "aria-hidden": "true" }, "✖"), el("span", {}, TEXT.download.failed));
+  }
+  return el("span", { class: "badge warn" },
+    spinner(), el("span", {}, TEXT.download.active));
+}
+
+// The line under a downloading component: time elapsed and the runtime's
+// latest output.
+function downloadLine(d) {
+  const line = [TEXT.download.elapsed(clock(d.elapsedSeconds)), d.output].filter(Boolean).join(" · ");
+  return el("p", { class: "download" }, line);
 }
 
 function renderComponents(s) {
@@ -136,11 +195,12 @@ function renderComponents(s) {
     li.append(
       el("div", { class: "comp-head" },
         el("span", { class: "comp-name" }, c.name),
-        c.installed ? stateBadge(c.state) : el("span", { class: "badge bad" },
+        c.download ? downloadBadge(c.download) : c.installed ? stateBadge(c.state) : el("span", { class: "badge bad" },
           el("span", { "aria-hidden": "true" }, "✖"), el("span", {}, "Not installed")),
       ),
       el("p", { class: "comp-desc" }, c.description),
     );
+    if (c.download && c.download.state === "downloading") li.append(downloadLine(c.download));
     if (c.facts && c.facts.length) {
       const dl = el("dl", { class: "facts" });
       for (const f of c.facts) dl.append(el("dt", {}, f.label), el("dd", {}, f.value));
@@ -151,17 +211,22 @@ function renderComponents(s) {
 }
 
 function renderNotInstalled(s) {
-  const missing = s.components.filter((c) => !c.installed && c.buildCommand);
-  const show = s.phase === "unavailable" && s.reason.code === "images_missing" && missing.length > 0;
+  // A pull command is shown for images that can be downloaded; the build
+  // command for those that can only be built.
+  const commandOf = (c) => c.pullCommand || c.buildCommand;
+  const missing = s.components.filter((c) => !c.installed && commandOf(c));
+  const code = s.reason.code;
+  const show = s.phase === "unavailable" && (code === "images_missing" || code.startsWith("pull_")) && missing.length > 0;
   $("not-installed").hidden = !show;
   if (!show) return;
-  $("not-installed").querySelector("p").textContent = `${TEXT.notInstalledNote}:`;
+  const pulls = missing.every((c) => c.pullCommand);
+  $("not-installed").querySelector("p").textContent = `${pulls ? TEXT.pullNote : TEXT.notInstalledNote}:`;
   $("ni-list").replaceChildren(...missing.map((c) => {
     const copy = el("button", { type: "button", class: "copy" }, TEXT.copy);
-    copy.addEventListener("click", () => copyText(c.buildCommand, copy));
+    copy.addEventListener("click", () => copyText(commandOf(c), copy));
     return el("li", {},
       el("div", { class: "comp-name" }, c.name),
-      el("div", { class: "cmd" }, el("code", {}, c.buildCommand), copy));
+      el("div", { class: "cmd" }, el("code", {}, commandOf(c)), copy));
   }));
 }
 

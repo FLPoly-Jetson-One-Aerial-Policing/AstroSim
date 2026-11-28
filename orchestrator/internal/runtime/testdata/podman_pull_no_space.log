@@ -1,0 +1,4 @@
+Trying to pull ghcr.io/o/x:1...
+Getting image source signatures
+Copying blob sha256:8ff7c0e549c1b1ca081868455f6e884fa4a41ee128eee40bed9de0263c2a6be0
+Error: copying system image from manifest list: writing blob: storing blob to file "/var/tmp/container_images_storage1234/1": write /var/tmp/container_images_storage1234/1: no space left on device

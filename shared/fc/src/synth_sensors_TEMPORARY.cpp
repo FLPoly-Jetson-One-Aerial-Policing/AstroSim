@@ -14,13 +14,13 @@ namespace astrosim::fc {
 
 namespace {
 
-constexpr double kGravity = 9.80665;        ///< Standard gravity, m/s^2.
+constexpr double kGravity = 9.80665;              ///< Standard gravity, m/s^2.
 constexpr double kSeaLevelPressurePa = 101325.0;  ///< ISA sea-level pressure, Pa.
-constexpr double kSeaLevelTempK = 288.15;   ///< ISA sea-level temperature, K.
-constexpr double kLapseRate = 0.0065;       ///< ISA troposphere lapse rate, K/m.
-constexpr double kPressureExponent = 5.255876;  ///< g*M/(R*L) for the ISA troposphere.
-constexpr double kWgs84A = 6378137.0;       ///< WGS84 semi-major axis, m.
-constexpr double kWgs84E2 = 6.69437999014e-3;  ///< WGS84 first eccentricity squared.
+constexpr double kSeaLevelTempK = 288.15;         ///< ISA sea-level temperature, K.
+constexpr double kLapseRate = 0.0065;             ///< ISA troposphere lapse rate, K/m.
+constexpr double kPressureExponent = 5.255876;    ///< g*M/(R*L) for the ISA troposphere.
+constexpr double kWgs84A = 6378137.0;             ///< WGS84 semi-major axis, m.
+constexpr double kWgs84E2 = 6.69437999014e-3;     ///< WGS84 first eccentricity squared.
 constexpr double kDegPerRad = 180.0 / std::numbers::pi;
 
 /// @brief Whether every element is finite.

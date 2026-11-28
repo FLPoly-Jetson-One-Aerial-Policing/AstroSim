@@ -1,0 +1,36 @@
+{
+  "name": "main-ci-green",
+  "target": "branch",
+  "enforcement": "active",
+  "conditions": {
+    "ref_name": {
+      "include": ["~DEFAULT_BRANCH"],
+      "exclude": []
+    }
+  },
+  "rules": [
+    {
+      "type": "required_status_checks",
+      "parameters": {
+        "strict_required_status_checks_policy": true,
+        "do_not_enforce_on_create": false,
+        "required_status_checks": [
+          { "context": "lint", "integration_id": 15368 },
+          { "context": "orchestrator", "integration_id": 15368 },
+          { "context": "orchestrator-windows", "integration_id": 15368 },
+          { "context": "images (engine)", "integration_id": 15368 },
+          { "context": "images (fc)", "integration_id": 15368 },
+          { "context": "smoke", "integration_id": 15368 },
+          { "context": "package", "integration_id": 15368 }
+        ]
+      }
+    }
+  ],
+  "bypass_actors": [
+    {
+      "actor_id": 5,
+      "actor_type": "RepositoryRole",
+      "bypass_mode": "always"
+    }
+  ]
+}

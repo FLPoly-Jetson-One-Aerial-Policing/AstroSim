@@ -21,7 +21,9 @@ constexpr std::uint16_t kHilPort = 47560;
 constexpr std::uint16_t kLocalPort = 47540;
 constexpr std::uint16_t kPx4Port = 47580;
 
-fc::TimePoint now() { return std::chrono::steady_clock::now(); }
+fc::TimePoint now() {
+  return std::chrono::steady_clock::now();
+}
 
 sockaddr_in loopback(std::uint16_t port) {
   sockaddr_in a{};

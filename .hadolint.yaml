@@ -1,0 +1,8 @@
+# Hadolint configuration for tools/lint.sh.
+ignored:
+  # DL3008 "Pin versions in apt-get install": the base images are pinned by tag instead, so the package set only
+  # moves when a Dockerfile deliberately changes its base.
+  - DL3008
+  # DL3059 "Multiple consecutive RUN instructions": orchestrator/build.Dockerfile splits its gofmt, vet and test steps
+  # into separate RUN lines, so each is its own step in the build log. Not changed here; revisit if that file is tidied.
+  - DL3059

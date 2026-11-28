@@ -53,7 +53,7 @@ RUN cmake -S gazebo-container -B /tmp/build-test -G Ninja -DCMAKE_BUILD_TYPE=Deb
 RUN cmake -S gazebo-container -B /tmp/build-release -G Ninja -DCMAKE_BUILD_TYPE=Release \
         -DASTROSIM_BUILD_GZ=ON -DASTROSIM_BUILD_TESTS=OFF -DCMAKE_INSTALL_PREFIX=/opt/stage \
     && cmake --build /tmp/build-release \
-    && cmake --install /tmp/build-release
+    && cmake --install /tmp/build-release --strip
 
 # ---------------------------------------------------------------------------------------------------------------
 FROM docker.io/library/ubuntu:${UBUNTU_TAG} AS runtime
@@ -90,7 +90,8 @@ COPY gazebo-container/worlds/ /opt/astrosim/worlds/
 COPY shared/aircraft/jetson_one.toml /opt/astrosim/config/jetson_one.toml
 COPY --chmod=755 gazebo-container/entrypoint.sh /opt/astrosim/entrypoint.sh
 
-USER astrosim
+# Numeric, so that container runtimes can verify the user is not root (uid 10001 is the astrosim user above).
+USER 10001
 
 EXPOSE 8765/udp
 

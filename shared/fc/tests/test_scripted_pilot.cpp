@@ -58,12 +58,12 @@ TEST(ScriptedPilot, LinearInterpolation) {
 
 /// @brief Times must be finite and strictly increasing.
 TEST(ScriptedPilot, RejectsBadTimes) {
-  EXPECT_THROW(ScriptedPilot({key(1, 0, 0, 0, 0, FlightMode::kGpsHold, false),
-                              key(1, 0, 0, 0, 0, FlightMode::kGpsHold, false)}),
-               std::invalid_argument);
-  EXPECT_THROW(ScriptedPilot({key(2, 0, 0, 0, 0, FlightMode::kGpsHold, false),
-                              key(1, 0, 0, 0, 0, FlightMode::kGpsHold, false)}),
-               std::invalid_argument);
+  EXPECT_THROW(
+      ScriptedPilot({key(1, 0, 0, 0, 0, FlightMode::kGpsHold, false), key(1, 0, 0, 0, 0, FlightMode::kGpsHold, false)}),
+      std::invalid_argument);
+  EXPECT_THROW(
+      ScriptedPilot({key(2, 0, 0, 0, 0, FlightMode::kGpsHold, false), key(1, 0, 0, 0, 0, FlightMode::kGpsHold, false)}),
+      std::invalid_argument);
   EXPECT_THROW(ScriptedPilot({key(std::nan(""), 0, 0, 0, 0, FlightMode::kGpsHold, false)}), std::invalid_argument);
 }
 

@@ -248,6 +248,7 @@ func TestInspectErrors(t *testing.T) {
 }
 
 func TestStopRemoveWait(t *testing.T) {
+	fakeSleep(t, 0, nil)
 	sc := &scripted{results: map[string]Result{
 		"wait ok":      {Stdout: "143\n"},
 		"wait garbage": {Stdout: "x"},
@@ -274,6 +275,158 @@ func TestStopRemoveWait(t *testing.T) {
 	}
 	if err := cli.Remove(ctx, "bad"); err == nil {
 		t.Error("want error for real failure")
+	}
+}
+
+// seqCommander replays a fixed sequence of results per command key
+// (the arguments joined by spaces); the last result repeats.
+type seqCommander struct {
+	seq   map[string][]Result
+	calls []string
+}
+
+func (s *seqCommander) Run(_ context.Context, _ string, args ...string) (Result, error) {
+	key := strings.Join(args, " ")
+	s.calls = append(s.calls, key)
+	q := s.seq[key]
+	if len(q) == 0 {
+		return Result{}, nil
+	}
+	r := q[0]
+	if len(q) > 1 {
+		s.seq[key] = q[1:]
+	}
+	return r, nil
+}
+
+func (s *seqCommander) count(key string) int {
+	n := 0
+	for _, c := range s.calls {
+		if c == key {
+			n++
+		}
+	}
+	return n
+}
+
+// fakeSleep replaces sleep for a test and records the requested waits.
+// A non-nil failAt ends the wait with that error on the n-th call (1-based).
+func fakeSleep(t *testing.T, failAt int, err error) *[]time.Duration {
+	t.Helper()
+	old := sleep
+	t.Cleanup(func() { sleep = old })
+	var waits []time.Duration
+	sleep = func(_ context.Context, d time.Duration) error {
+		waits = append(waits, d)
+		if failAt > 0 && len(waits) == failAt {
+			return err
+		}
+		return nil
+	}
+	return &waits
+}
+
+// TestRemoveGoneAfterFailure covers rootless podman failing to tidy the
+// network after it already deleted the container.
+func TestRemoveGoneAfterFailure(t *testing.T) {
+	const (
+		rm  = "rm -f c"
+		ins = "inspect --format {{json .State}} c"
+	)
+	netns := Result{ExitCode: 125, Stderr: fixture(t, "podman_rm_netns_error.log")}
+	notFound := Result{ExitCode: 125, Stderr: "Error: no such object: \"c\""}
+	running := Result{Stdout: fixture(t, "podman_running.json")}
+	unknown := Result{ExitCode: 1, Stderr: "cannot connect to the engine"}
+	full := len(removeWaits)
+
+	tests := []struct {
+		name      string
+		seq       map[string][]Result
+		wantErr   bool
+		wantWaits int
+		wantRm    int
+	}{
+		{"rm succeeds", map[string][]Result{rm: {{}}}, false, 0, 1},
+		{"rm reports not found", map[string][]Result{rm: {notFound}}, false, 0, 1},
+		{"gone on the first poll", map[string][]Result{rm: {netns}, ins: {notFound}}, false, 1, 1},
+		{"gone after five polls, no rm retry", map[string][]Result{
+			rm: {netns}, ins: {running, running, running, running, notFound},
+		}, false, 5, 1},
+		{"still there, final rm succeeds", map[string][]Result{rm: {netns, {}}, ins: {running}}, false, full, 2},
+		{"still there, final rm reports not found", map[string][]Result{rm: {netns, notFound}, ins: {running}}, false, full, 2},
+		{"never gone", map[string][]Result{rm: {netns}, ins: {running}}, true, full, 2},
+		{"inspect unknown, then gone", map[string][]Result{rm: {netns}, ins: {unknown, unknown, notFound}}, false, 3, 1},
+		{"inspect always unknown", map[string][]Result{rm: {netns}, ins: {unknown}}, true, full, 2},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			waits := fakeSleep(t, 0, nil)
+			sc := &seqCommander{seq: tt.seq}
+			err := NewCLI("podman", Podman, sc).Remove(context.Background(), "c")
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("err = %v, wantErr %v", err, tt.wantErr)
+			}
+			if tt.wantErr {
+				var ce *CommandError
+				if !errors.As(err, &ce) || ce.ExitCode != 125 || !strings.Contains(err.Error(), "kill network process") {
+					t.Errorf("err = %v, want the original rm failure", err)
+				}
+			}
+			if len(*waits) != tt.wantWaits {
+				t.Errorf("waits = %d, want %d", len(*waits), tt.wantWaits)
+			}
+			if n := sc.count(rm); n != tt.wantRm {
+				t.Errorf("rm calls = %d, want %d", n, tt.wantRm)
+			}
+		})
+	}
+}
+
+// TestRemoveWaitsBounded checks the poll schedule totals between 10 s and 16 s.
+func TestRemoveWaitsBounded(t *testing.T) {
+	var total time.Duration
+	for _, d := range removeWaits {
+		total += d
+	}
+	if total < 10*time.Second || total > 16*time.Second {
+		t.Errorf("total wait %v, want within [10s, 16s]", total)
+	}
+}
+
+// TestRemoveContextCancelled checks a context ending during the wait stops
+// the polling, issues no further rm and reports the original failure.
+func TestRemoveContextCancelled(t *testing.T) {
+	fakeSleep(t, 2, context.Canceled)
+	netns := Result{ExitCode: 125, Stderr: fixture(t, "podman_rm_netns_error.log")}
+	running := Result{Stdout: fixture(t, "podman_running.json")}
+	sc := &seqCommander{seq: map[string][]Result{
+		"rm -f c": {netns}, "inspect --format {{json .State}} c": {running},
+	}}
+	err := NewCLI("podman", Podman, sc).Remove(context.Background(), "c")
+	if !errors.Is(err, context.Canceled) {
+		t.Errorf("err = %v, want context.Canceled", err)
+	}
+	var ce *CommandError
+	if !errors.As(err, &ce) {
+		t.Errorf("err = %v, want the rm failure wrapped", err)
+	}
+	if n := sc.count("inspect --format {{json .State}} c"); n != 1 {
+		t.Errorf("inspect calls = %d, want 1", n)
+	}
+	if n := sc.count("rm -f c"); n != 1 {
+		t.Errorf("rm calls = %d, want 1", n)
+	}
+}
+
+// TestSleepHonoursContext checks the real wait returns early on cancel.
+func TestSleepHonoursContext(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if err := sleep(ctx, time.Hour); !errors.Is(err, context.Canceled) {
+		t.Errorf("err = %v, want context.Canceled", err)
+	}
+	if err := sleep(context.Background(), time.Millisecond); err != nil {
+		t.Errorf("err = %v", err)
 	}
 }
 
@@ -474,6 +627,106 @@ func TestFollowLogsErrors(t *testing.T) {
 		err := NewCLI("rt", Podman, &scripted{}).FollowLogs(ctx, "c", LogOptions{}, io.Discard, io.Discard)
 		if err == nil || !strings.Contains(err.Error(), "cannot stream") {
 			t.Fatalf("err = %v", err)
+		}
+	})
+}
+
+// TestPullArgs checks the command line and that both output streams reach
+// the progress writer, whichever one a dialect uses for its progress.
+func TestPullArgs(t *testing.T) {
+	for _, d := range []Dialect{Podman, Docker} {
+		t.Run(d.Name, func(t *testing.T) {
+			st := &streamer{out: "Pulling fs layer\n", err: "Copying blob x\n"}
+			var progress strings.Builder
+			if err := NewCLI("rt", d, st).Pull(context.Background(), "ghcr.io/o/x:1", &progress); err != nil {
+				t.Fatal(err)
+			}
+			if got, want := st.last(), []string{"pull", "ghcr.io/o/x:1"}; !reflect.DeepEqual(got, want) {
+				t.Errorf("args = %v, want %v", got, want)
+			}
+			if got := progress.String(); !strings.Contains(got, "Pulling fs layer\n") || !strings.Contains(got, "Copying blob x\n") {
+				t.Errorf("progress = %q", got)
+			}
+		})
+	}
+	t.Run("nil progress", func(t *testing.T) {
+		st := &streamer{out: "o\n", err: "e\n"}
+		if err := NewCLI("rt", Podman, st).Pull(context.Background(), "ghcr.io/o/x:1", nil); err != nil {
+			t.Fatal(err)
+		}
+	})
+}
+
+// TestPullErrors classifies real podman failures (captured by running podman
+// 5.8 against ghcr.io, docker.io and an .invalid host) and docker failures
+// (hand-written, as docker was not available; see the README). The
+// podman_pull_no_space fixture is hand-written too: a full disk could not be
+// provoked safely. The fixtures end in .log because the repository ignores .txt.
+func TestPullErrors(t *testing.T) {
+	for _, tc := range []struct {
+		fixture string
+		want    error
+	}{
+		{"podman_pull_manifest_unknown.log", ErrNotFound},
+		{"podman_pull_no_platform.log", ErrNotFound},
+		{"podman_pull_no_such_host.log", ErrUnreachable},
+		{"podman_pull_forbidden.log", ErrDenied},
+		{"podman_pull_denied.log", ErrDenied},
+		{"podman_pull_no_space.log", ErrNoSpace},
+		{"docker_pull_manifest_unknown.log", ErrNotFound},
+		{"docker_pull_no_platform.log", ErrNotFound},
+		{"docker_pull_no_such_host.log", ErrUnreachable},
+		{"docker_pull_unauthorized.log", ErrDenied},
+		{"docker_pull_no_space.log", ErrNoSpace},
+	} {
+		t.Run(tc.fixture, func(t *testing.T) {
+			dialect := Podman
+			if strings.HasPrefix(tc.fixture, "docker") {
+				dialect = Docker
+			}
+			st := &streamer{code: 125, err: fixture(t, tc.fixture)}
+			err := NewCLI("rt", dialect, st).Pull(context.Background(), "ghcr.io/o/x:1", io.Discard)
+			if !errors.Is(err, tc.want) {
+				t.Fatalf("err = %v, want %v", err, tc.want)
+			}
+			for _, other := range []error{ErrNotFound, ErrDenied, ErrNoSpace, ErrUnreachable} {
+				if other != tc.want && errors.Is(err, other) {
+					t.Errorf("err also matches %v", other)
+				}
+			}
+			var ce *CommandError
+			if !errors.As(err, &ce) || ce.ExitCode != 125 || ce.Stderr == "" {
+				t.Errorf("no usable CommandError in %v", err)
+			}
+		})
+	}
+}
+
+func TestPullOtherErrors(t *testing.T) {
+	ctx := context.Background()
+	t.Run("unrecognised", func(t *testing.T) {
+		st := &streamer{code: 1, err: "something odd\n"}
+		err := NewCLI("rt", Podman, st).Pull(ctx, "ghcr.io/o/x:1", nil)
+		var ce *CommandError
+		if !errors.As(err, &ce) || ce.Stderr != "something odd" {
+			t.Fatalf("err = %v", err)
+		}
+		for _, s := range []error{ErrNotFound, ErrDenied, ErrNoSpace, ErrUnreachable} {
+			if errors.Is(err, s) {
+				t.Errorf("err matches %v", s)
+			}
+		}
+	})
+	t.Run("run error", func(t *testing.T) {
+		want := errors.New("cancelled")
+		err := NewCLI("rt", Podman, &streamer{runErr: want}).Pull(ctx, "ghcr.io/o/x:1", nil)
+		if !errors.Is(err, want) {
+			t.Fatalf("err = %v", err)
+		}
+	})
+	t.Run("not a streamer", func(t *testing.T) {
+		if err := NewCLI("rt", Podman, &scripted{}).Pull(ctx, "ghcr.io/o/x:1", nil); err == nil {
+			t.Fatal("want an error")
 		}
 	})
 }

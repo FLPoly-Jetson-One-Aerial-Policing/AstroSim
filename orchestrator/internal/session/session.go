@@ -56,6 +56,9 @@ type LogCapture interface {
 	Begin(component string, gen uint64, container, containerID, image string) Capture
 	// Note writes a marker line, such as an exit code, to the component's log.
 	Note(component, msg string)
+	// Line writes one plain line, such as a line of download progress, to
+	// the component's log.
+	Line(component, line string)
 }
 
 // Capture is one container's log follower.
@@ -94,6 +97,10 @@ type Options struct {
 	// LogDir is the folder the session log is written to, published in
 	// snapshots so the dashboard can show it. Empty means no file logging.
 	LogDir string
+	// PullMissing allows downloading a missing image whose reference names
+	// its registry. When false such an image is reported as missing, like
+	// any other.
+	PullMissing bool
 	// AfterFunc schedules supervisor timers; nil means time.AfterFunc.
 	// Tests use it to compress the supervisor's long delays.
 	AfterFunc func(d time.Duration, f func()) *time.Timer
@@ -150,6 +157,7 @@ type Session struct {
 	cur      status.Snapshot
 	runs     map[string]*run
 	lastLogs map[string][]string
+	pull     *pullJob // the latest download, kept after it ends; nil before the first
 }
 
 // New builds a Session. It fails if the definitions do not form a valid plan.
@@ -272,7 +280,7 @@ func (s *Session) Run(ctx context.Context) error {
 			}
 		case <-ticker.C:
 			switch s.sup.Snapshot().Phase {
-			case supervisor.PhaseStarting, supervisor.PhaseRunning, supervisor.PhaseRecovering:
+			case supervisor.PhaseStarting, supervisor.PhaseRunning, supervisor.PhaseRecovering, supervisor.PhaseDownloading:
 				s.publish()
 			}
 		case <-ctxDone:
@@ -315,6 +323,10 @@ func (s *Session) exec(actions []supervisor.Action) (exit bool) {
 		case supervisor.ActionTeardown:
 			r := s.runFor(a.Component, a.Gen)
 			s.goRun(func() { s.doTeardown(a, r) })
+		case supervisor.ActionPull:
+			s.startPull(a)
+		case supervisor.ActionCancelPull:
+			s.cancelPull(a.Gen)
 		case supervisor.ActionSetTimer:
 			s.opts.AfterFunc(a.After, func() {
 				s.post(supervisor.Event{Kind: supervisor.TimerFired, Timer: a.Timer, Key: a.Key, Gen: a.Gen})
@@ -374,6 +386,7 @@ func (s *Session) buildSnapshot(st supervisor.State) status.Snapshot {
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	now := s.opts.Clock()
 	for _, cs := range st.Components {
 		d := s.defs[cs.ID]
 		c := status.Component{
@@ -386,10 +399,23 @@ func (s *Session) buildSnapshot(st supervisor.State) status.Snapshot {
 			LastLog:      append([]string{}, s.lastLogs[d.ID]...),
 			Endpoints:    []status.Endpoint{},
 		}
+		if runtime.Pullable(d.Image) {
+			c.PullCommand = info.Name + " pull " + d.Image
+		}
 		for _, img := range st.Preflight.MissingImages {
 			if img == d.Image {
 				c.Installed = false
 			}
+		}
+		// The report is from before the download. While the download and the
+		// check that follows it run, an image that arrived is not "not installed".
+		if st.Phase == supervisor.PhaseDownloading || st.Phase == supervisor.PhaseChecking {
+			if dl := s.downloadFor(d.Image, now); dl != nil && dl.State == pullDone {
+				c.Installed = true
+			}
+		}
+		if st.Phase == supervisor.PhaseDownloading {
+			c.Download = s.downloadFor(d.Image, now)
 		}
 		// Facts belong to a live launch; hide them for components that are
 		// not running so stale values are never shown.

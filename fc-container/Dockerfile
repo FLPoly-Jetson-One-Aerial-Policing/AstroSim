@@ -77,7 +77,7 @@ RUN cmake -S fc-container -B /tmp/build-release -G Ninja -DCMAKE_BUILD_TYPE=Rele
         -DASTROSIM_BUILD_TESTS=OFF -DASTROSIM_BUILD_PX4=ON -DASTROSIM_MAVLINK_DIR=/opt/mavlink \
         -DCMAKE_INSTALL_PREFIX=/opt/stage \
     && cmake --build /tmp/build-release \
-    && cmake --install /tmp/build-release
+    && cmake --install /tmp/build-release --strip
 
 # The runtime needs only the px4 binary (with its module symlinks and alias script) and the processed ROMFS.
 RUN mkdir -p /opt/px4-stage \
@@ -105,7 +105,8 @@ COPY fc-container/config/ /opt/astrosim/config/
 COPY shared/aircraft/jetson_one.toml /opt/astrosim/config/jetson_one.toml
 COPY --chmod=755 fc-container/entrypoint.sh /opt/astrosim/entrypoint.sh
 
-USER astrosim
+# Numeric, so that container runtimes can verify the user is not root (uid 10001 is the astrosim user above).
+USER 10001
 
 # FC telemetry (UDP). PX4's own ports stay inside the container.
 EXPOSE 8766/udp

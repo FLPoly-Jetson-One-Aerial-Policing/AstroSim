@@ -43,12 +43,12 @@ using FcTelemetry = proto::FcTelemetryMsg;
 
 /// @brief GPS measurement (geodetic position, NED velocity).
 struct Gps {
-  double lat_deg = 0;               ///< Latitude, degrees, WGS84.
-  double lon_deg = 0;               ///< Longitude, degrees, WGS84.
-  double alt_m = 0;                 ///< Altitude above mean sea level, m.
-  std::array<float, 3> vel_ned{};   ///< Velocity, m/s, north-east-down.
-  std::uint8_t fix = 0;             ///< Fix type: 0 none, 2 2D, 3 3D (see proto::FcGpsFix).
-  std::uint8_t satellites = 0;      ///< Satellites used.
+  double lat_deg = 0;              ///< Latitude, degrees, WGS84.
+  double lon_deg = 0;              ///< Longitude, degrees, WGS84.
+  double alt_m = 0;                ///< Altitude above mean sea level, m.
+  std::array<float, 3> vel_ned{};  ///< Velocity, m/s, north-east-down.
+  std::uint8_t fix = 0;            ///< Fix type: 0 none, 2 2D, 3 3D (see proto::FcGpsFix).
+  std::uint8_t satellites = 0;     ///< Satellites used.
 
   /// @brief Member-wise equality.
   friend bool operator==(const Gps&, const Gps&) = default;
@@ -66,15 +66,15 @@ struct Truth {
 
 /// @brief One sample of all sensors, in body FLU axes. Produced by a SensorSource, consumed by a FlightComputer.
 struct SensorFrame {
-  double time_s = 0;                      ///< Simulation time of the sample, s.
-  Vec3 gyro{};                            ///< Angular rate, rad/s, body FLU.
-  Vec3 accel{};                           ///< Specific force (what an accelerometer reads), m/s^2, body FLU.
-  Vec3 mag{};                             ///< Magnetic field, gauss, body FLU.
-  double baro_pressure_pa = 0;            ///< Static pressure, Pa.
-  double baro_altitude_m = 0;             ///< Pressure altitude above mean sea level, m.
-  double baro_temperature_c = 0;          ///< Air temperature, degrees Celsius.
-  Gps gps;                                ///< GPS measurement.
-  std::optional<Truth> truth;             ///< Ground truth, if the source provides it.
+  double time_s = 0;              ///< Simulation time of the sample, s.
+  Vec3 gyro{};                    ///< Angular rate, rad/s, body FLU.
+  Vec3 accel{};                   ///< Specific force (what an accelerometer reads), m/s^2, body FLU.
+  Vec3 mag{};                     ///< Magnetic field, gauss, body FLU.
+  double baro_pressure_pa = 0;    ///< Static pressure, Pa.
+  double baro_altitude_m = 0;     ///< Pressure altitude above mean sea level, m.
+  double baro_temperature_c = 0;  ///< Air temperature, degrees Celsius.
+  Gps gps;                        ///< GPS measurement.
+  std::optional<Truth> truth;     ///< Ground truth, if the source provides it.
 
   /// @brief Member-wise equality.
   friend bool operator==(const SensorFrame&, const SensorFrame&) = default;
@@ -86,12 +86,12 @@ struct SensorFrame {
  * The roll and pitch sticks command attitude ANGLE in both flight modes, never rate.
  */
 struct PilotInput {
-  float roll = 0;         ///< Roll angle demand in [-1, 1], scaled by the FC's maximum tilt. Right positive.
-  float pitch = 0;        ///< Pitch angle demand in [-1, 1], scaled by the FC's maximum tilt. Nose-up positive.
-  float yaw = 0;          ///< Yaw demand in [-1, 1]. Clockwise (from above) positive.
-  float throttle = 0;     ///< Throttle in [0, 1].
+  float roll = 0;      ///< Roll angle demand in [-1, 1], scaled by the FC's maximum tilt. Right positive.
+  float pitch = 0;     ///< Pitch angle demand in [-1, 1], scaled by the FC's maximum tilt. Nose-up positive.
+  float yaw = 0;       ///< Yaw demand in [-1, 1]. Clockwise (from above) positive.
+  float throttle = 0;  ///< Throttle in [0, 1].
   FlightMode mode = FlightMode::kGpsHold;  ///< Requested flight mode.
-  bool arm = false;       ///< Requested armed state.
+  bool arm = false;                        ///< Requested armed state.
 
   /// @brief Member-wise equality.
   friend bool operator==(const PilotInput&, const PilotInput&) = default;

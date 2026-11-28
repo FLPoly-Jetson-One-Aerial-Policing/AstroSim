@@ -53,3 +53,10 @@ func TestLazyFollowLogsBeforeDetection(t *testing.T) {
 		t.Fatalf("FollowLogs = %v", err)
 	}
 }
+
+func TestLazyPullBeforeDetection(t *testing.T) {
+	l := NewLazy(DetectOptions{Commander: &byBinary{}, LookPath: lookIn(nil)})
+	if err := l.Pull(context.Background(), "ghcr.io/o/x:1", io.Discard); !errors.Is(err, ErrNotInstalled) {
+		t.Fatalf("Pull = %v", err)
+	}
+}

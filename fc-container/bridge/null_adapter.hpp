@@ -20,7 +20,10 @@ namespace astrosim::fcbridge {
  */
 class NullAdapter final : public fc::FlightComputer {
  public:
-  /** @brief Record the barometric altitude for telemetry. */
+  /**
+   * @brief Record the barometric altitude for telemetry.
+   * @param frame Latest sensor frame.
+   */
   void onSensors(const fc::SensorFrame& frame, fc::TimePoint) override {
     telemetry_.time_s = frame.time_s;
     telemetry_.gps_fix = frame.gps.fix;
@@ -28,7 +31,10 @@ class NullAdapter final : public fc::FlightComputer {
     telemetry_.alt_msl_m = static_cast<float>(frame.baro_altitude_m);
     have_motors_ = true;
   }
-  /** @brief Mirror the pilot's mode and arm request. */
+  /**
+   * @brief Mirror the pilot's mode and arm request.
+   * @param input Latest pilot input.
+   */
   void onPilot(const fc::PilotInput& input, fc::TimePoint) override {
     telemetry_.armed = input.arm;
     telemetry_.mode = input.mode;

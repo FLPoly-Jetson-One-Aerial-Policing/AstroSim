@@ -1,6 +1,5 @@
-/**
- * @file probe.cpp
- * @brief astrosim-probe: command-line client for the engine protocol (health check, State viewer, Control sender).
+/*
+ * astrosim-probe: command-line client for the engine protocol (health check, State viewer, Control sender).
  *
  * Depends only on shared/proto and POSIX sockets; it does not use gz.
  */

@@ -23,10 +23,20 @@
 #      engine, fc and orchestrator lines and fc.log a launch marker, and after
 #      "kill -9" the folder remains and the next start archives it.
 #
+# With ASTROSIM_SMOKE_PULL=1 it first exercises the download of the images,
+# which needs a release build (one that prints an "images" line for --version):
+# it removes the build's two images, then checks that the startup check
+# downloads them, that Stop cancels the download, and that Start downloads
+# them again and reaches "running". Everything else then runs as above. Run it
+# where the registry is reachable without credentials, as an end user's machine
+# is, and expect it to download the images in full (the engine is about 1.6 GB).
+#
 # Environment:
-#   CONTAINER_RUNTIME       podman (default) or docker
+#   CONTAINER_RUNTIME       podman (default) or docker; the orchestrator is told
+#                           to use the same one
 #   ASTROSIM_ORCH_LISTEN    dashboard address (default 127.0.0.1:8770)
 #   ASTROSIM_BIN            orchestrator binary (default build/orchestrator/astrosim)
+#   ASTROSIM_SMOKE_PULL     set to 1 to test downloading the images first
 #
 # The test keeps its logs in a temporary ASTROSIM_ORCH_LOG_DIR of its own.
 #
@@ -44,6 +54,9 @@ base="http://$listen"
 log="$(mktemp "${TMPDIR:-/tmp}/astrosim-smoke.XXXXXX")"
 logroot="$(mktemp -d "${TMPDIR:-/tmp}/astrosim-smoke-logs.XXXXXX")"
 export ASTROSIM_ORCH_LOG_DIR="$logroot"
+# The orchestrator auto-detects podman first, so without this it would look for
+# the images in podman while the script checks (and CI loads them into) docker.
+export ASTROSIM_ORCH_RUNTIME="$runtime"
 pid=""
 spid=""
 failures=0
@@ -179,6 +192,63 @@ if [ -n "$(status)" ]; then
     exit 2
 fi
 
+# 0. Optional: downloading the images (ASTROSIM_SMOKE_PULL=1).
+if [ "${ASTROSIM_SMOKE_PULL:-}" = 1 ]; then
+    refs="$("$bin" --version | sed -n 's/^images //p')"
+    [ -n "$refs" ] || { echo "FAIL: ASTROSIM_SMOKE_PULL needs a release build ($bin --version has no images line)"; exit 2; }
+    read -r -a ref_list <<<"$refs"
+    "$runtime" rmi -f "${ref_list[@]}" >/dev/null 2>&1 || true
+    # No --autostart: the download begins with the startup check, and Start is pressed by hand.
+    start_orchestrator
+    if wait_phase downloading 60; then
+        pass "pull: the startup check is downloading"
+        if status | grep -q '"download":{"state":"downloading"'; then
+            pass "pull: the status shows the download"
+        else
+            fail "pull: the status has no download while downloading"
+        fi
+    else
+        fail "pull: not downloading within 60 s (phase=$(phase))"
+        exit 1
+    fi
+    if post stop && wait_phase stopped 30 && status | grep -q '"code":"pull_cancelled"'; then
+        pass "pull: Stop cancels the download"
+    else
+        fail "pull: Stop did not cancel the download (phase=$(phase))"
+    fi
+    pull_started=$SECONDS
+    if post start && wait_running 1800; then
+        pass "pull: downloaded and running after $((SECONDS - pull_started))s"
+    else
+        fail "pull: not running within 1800 s of Start (phase=$(phase))"
+        exit 1
+    fi
+    for r in "${ref_list[@]}"; do
+        if "$runtime" image inspect "$r" >/dev/null 2>&1; then
+            pass "pull: $r is present"
+        else
+            fail "pull: $r is missing after the download"
+        fi
+    done
+    kill -INT "$pid"
+    if wait_exit 30 && wait_no_managed 30; then
+        pass "pull: orchestrator exited and no managed containers remain"
+    else
+        fail "pull: orchestrator or containers remain: $(managed | tr '\n' ' ')"
+    fi
+    newest="$(zips | tail -n 1)"
+    if engine_log="$(zip_member "$newest" engine.log)"; then
+        if grep -q '| ==== pull .* ====$' <<<"$engine_log" && grep -q '| ==== pull cancelled ====$' <<<"$engine_log" &&
+            grep -q '| ==== pull done in ' <<<"$engine_log"; then
+            pass "pull: engine.log has the pull markers, including the cancelled download"
+        else
+            fail "pull: engine.log lacks the pull markers"
+        fi
+    else
+        echo "SKIP: reading the log archive (needs unzip or python3)"
+    fi
+fi
+
 # 1. Start.
 start_orchestrator --autostart
 if wait_running 180; then
@@ -198,16 +268,22 @@ fi
 # 2. Kill the engine; the whole sim group must come back.
 old_id="$("$runtime" inspect --format '{{.Id}}' astrosim-engine)"
 "$runtime" kill astrosim-engine >/dev/null
-sleep 1
-if wait_running 180; then
+# The orchestrator may not have noticed the exit yet, so "running" alone proves nothing: wait
+# until a new engine container exists and the run is running again with both parts ready.
+recovered=false
+deadline=$((SECONDS + 180))
+while [ "$SECONDS" -lt "$deadline" ]; do
     new_id="$("$runtime" inspect --format '{{.Id}}' astrosim-engine 2>/dev/null || true)"
-    if [ -n "$new_id" ] && [ "$new_id" != "$old_id" ]; then
-        pass "recovery: engine relaunched and the run is running again"
-    else
-        fail "recovery: running again, but the engine container was not relaunched"
+    if [ -n "$new_id" ] && [ "$new_id" != "$old_id" ] && wait_running 1; then
+        recovered=true
+        break
     fi
+    sleep 1
+done
+if $recovered; then
+    pass "recovery: engine relaunched and the run is running again"
 else
-    fail "recovery: not running within 180 s after killing the engine (phase=$(phase))"
+    fail "recovery: no relaunched engine running within 180 s after the kill (phase=$(phase))"
 fi
 
 # 3. Stop.

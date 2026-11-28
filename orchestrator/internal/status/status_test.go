@@ -59,7 +59,7 @@ func TestSnapshotJSONKeys(t *testing.T) {
 	}
 	for _, key := range []string{`"version"`, `"phase"`, `"since"`, `"reason"`, `"attempt"`, `"maxAttempts"`,
 		`"canStart"`, `"canStop"`, `"runtime"`, `"components"`, `"buildCommand"`, `"installed"`,
-		`"exitCode"`, `"lastLog"`, `"endpoints"`, `"facts"`} {
+		`"exitCode"`, `"lastLog"`, `"endpoints"`, `"facts"`, `"pullCommand"`, `"download"`} {
 		if !strings.Contains(string(data), key) {
 			t.Errorf("missing key %s in %s", key, data)
 		}

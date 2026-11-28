@@ -75,6 +75,15 @@ type ComponentOverride struct {
 	Disabled bool `json:"disabled,omitempty"`
 }
 
+// Values of Config.Pull.
+const (
+	// PullMissing downloads a component image that is not present, when its
+	// reference names a registry (a release build).
+	PullMissing = "missing"
+	// PullNever only uses images that are already present.
+	PullNever = "never"
+)
+
 // Config is the complete orchestrator configuration.
 type Config struct {
 	// Listen is the dashboard's host:port.
@@ -88,6 +97,8 @@ type Config struct {
 	RuntimePath string `json:"runtimePath"`
 	// Network is the container network mode, "bridge" or "host" (Linux only).
 	Network string `json:"network"`
+	// Pull is the image download policy, PullMissing or PullNever.
+	Pull string `json:"pull"`
 	// PublishAddr is the host address component ports are published on in bridge mode.
 	PublishAddr string `json:"publishAddr"`
 	// NoBrowser stops the orchestrator opening the dashboard in a browser.
@@ -142,6 +153,7 @@ func Defaults() Config {
 		Listen:       "127.0.0.1:8770",
 		Runtime:      runtime.Auto,
 		Network:      component.NetworkBridge,
+		Pull:         PullMissing,
 		PublishAddr:  "127.0.0.1",
 		RestartMax:   supervisor.DefaultRestartPolicy.MaxAttempts,
 		LogLevel:     "info",
@@ -184,6 +196,7 @@ func LoadTo(w io.Writer, args []string, env func(string) string, readFile ReadFi
 	fs.StringVar(&f.Runtime, "runtime", def.Runtime, "container runtime: auto, podman or docker")
 	fs.StringVar(&f.RuntimePath, "runtime-path", def.RuntimePath, "path of the podman or docker executable")
 	fs.StringVar(&f.Network, "network", def.Network, "container network mode: bridge, or host (Linux only)")
+	fs.StringVar(&f.Pull, "pull", def.Pull, "download a missing image whose reference names a registry: missing or never")
 	fs.StringVar(&f.PublishAddr, "publish-addr", def.PublishAddr, "host address that container ports are published on")
 	fs.BoolVar(&f.NoBrowser, "no-browser", def.NoBrowser, "do not open the dashboard in a browser")
 	fs.BoolVar(&f.Autostart, "autostart", def.Autostart, "start the simulation as soon as the checks pass")
@@ -251,6 +264,9 @@ func LoadTo(w io.Writer, args []string, env func(string) string, readFile ReadFi
 	}
 	if set["network"] {
 		cfg.Network = f.Network
+	}
+	if set["pull"] {
+		cfg.Pull = f.Pull
 	}
 	if set["publish-addr"] {
 		cfg.PublishAddr = f.PublishAddr
@@ -329,6 +345,7 @@ func applyEnv(cfg *Config, env func(string) string) error {
 	str("RUNTIME", &cfg.Runtime)
 	str("RUNTIME_PATH", &cfg.RuntimePath)
 	str("NETWORK", &cfg.Network)
+	str("PULL", &cfg.Pull)
 	str("PUBLISH_ADDR", &cfg.PublishAddr)
 	str("LOG_LEVEL", &cfg.LogLevel)
 	str("LOG_DIR", &cfg.LogDir)
@@ -377,6 +394,11 @@ func (c Config) Validate(goos string, defs []component.Definition) error {
 		}
 	default:
 		bad("--network %q: want bridge or host", c.Network)
+	}
+	switch c.Pull {
+	case PullMissing, PullNever:
+	default:
+		bad("--pull %q: want %s or %s", c.Pull, PullMissing, PullNever)
 	}
 	if c.RestartMax < 1 {
 		bad("--restart-max must be at least 1, got %d", c.RestartMax)

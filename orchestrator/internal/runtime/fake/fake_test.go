@@ -312,3 +312,58 @@ func TestSetLogsAndOps(t *testing.T) {
 		t.Errorf("Ops = %q, want %q", got, want)
 	}
 }
+
+func TestPull(t *testing.T) {
+	ctx := context.Background()
+	r := New()
+	var out collect
+	if err := r.Pull(ctx, "ghcr.io/o/x:1", &out); err != nil {
+		t.Fatal(err)
+	}
+	if ok, _ := r.ImageExists(ctx, "ghcr.io/o/x:1"); !ok {
+		t.Error("image not present after Pull")
+	}
+	if out.String() != "pulled ghcr.io/o/x:1\n" {
+		t.Errorf("progress = %q", out.String())
+	}
+	if err := r.Pull(ctx, "ghcr.io/o/y:1", nil); err != nil {
+		t.Fatal(err)
+	}
+	if got := r.Pulls(); !reflect.DeepEqual(got, []string{"ghcr.io/o/x:1", "ghcr.io/o/y:1"}) {
+		t.Errorf("Pulls = %v", got)
+	}
+	if got := r.Ops(); !reflect.DeepEqual(got, []string{"pull ghcr.io/o/x:1", "pull ghcr.io/o/y:1"}) {
+		t.Errorf("Ops = %v", got)
+	}
+}
+
+func TestPullHook(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	r := New()
+	boom := errors.New("registry down")
+	r.PullHook = func(ctx context.Context, image string, progress io.Writer) error {
+		io.WriteString(progress, "Copying blob x\n")
+		if image == "bad" {
+			return boom
+		}
+		<-ctx.Done()
+		return ctx.Err()
+	}
+	var out collect
+	if err := r.Pull(ctx, "bad", &out); !errors.Is(err, boom) {
+		t.Fatalf("Pull = %v", err)
+	}
+	if ok, _ := r.ImageExists(ctx, "bad"); ok {
+		t.Error("failed pull marked the image present")
+	}
+	cancel()
+	if err := r.Pull(ctx, "slow", &out); !errors.Is(err, context.Canceled) {
+		t.Fatalf("Pull = %v", err)
+	}
+	if ok, _ := r.ImageExists(context.Background(), "slow"); ok {
+		t.Error("cancelled pull marked the image present")
+	}
+	if got := r.Pulls(); len(got) != 2 {
+		t.Errorf("Pulls = %v", got)
+	}
+}

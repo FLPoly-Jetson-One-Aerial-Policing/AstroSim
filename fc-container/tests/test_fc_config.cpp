@@ -115,7 +115,7 @@ no_gps_mode = "stabilized"
 [log]
 level = "debug"
 )",
-                              kNoEnv);
+                               kNoEnv);
   EXPECT_EQ(c.engine.host, "engine");
   EXPECT_EQ(c.engine.port, 9000);
   EXPECT_DOUBLE_EQ(c.timing.control_rate_hz, 100);
@@ -151,7 +151,7 @@ throttle = 0.75
 mode = "no_gps_hold"
 arm = true
 )",
-                              kNoEnv);
+                               kNoEnv);
   EXPECT_EQ(c.pilot.interpolation, fc::Interpolation::kLinear);
   ASSERT_EQ(c.pilot.script.size(), 2u);
   EXPECT_EQ(c.pilot.script[0].input, fc::PilotInput{});  // defaults: zero sticks, gps_hold, disarmed
@@ -182,8 +182,7 @@ TEST(FcConfig, EnvOverridesScalarKeys) {
 TEST(FcConfig, EnvOverridesAreValidatedToo) {
   EXPECT_NE(errorOf("", envOf({{"ASTROSIM_ENGINE_PORT", "70000"}})).find("engine.port"), std::string::npos);
   EXPECT_NE(errorOf("", envOf({{"ASTROSIM_ENGINE_PORT", "abc"}})).find("ASTROSIM_ENGINE_PORT"), std::string::npos);
-  EXPECT_NE(errorOf("", envOf({{"ASTROSIM_TIMING_FC_TIMEOUT_S", "x"}})).find("timing.fc_timeout_s"),
-            std::string::npos);
+  EXPECT_NE(errorOf("", envOf({{"ASTROSIM_TIMING_FC_TIMEOUT_S", "x"}})).find("timing.fc_timeout_s"), std::string::npos);
   EXPECT_NE(errorOf("", envOf({{"ASTROSIM_FC_SENSOR_SOURCE", "real"}})).find("fc.sensor_source"), std::string::npos);
 }
 
@@ -226,8 +225,7 @@ TEST(FcConfig, RejectsBadPilotScripts) {
   EXPECT_NE(errorOf("[[pilot.script]]\ntime_s = 1\nroll = 2\n").find("pilot.script[0].roll"), std::string::npos);
   EXPECT_NE(errorOf("[[pilot.script]]\ntime_s = 1\nthrottle = -0.1\n").find("pilot.script[0].throttle"),
             std::string::npos);
-  EXPECT_NE(errorOf("[[pilot.script]]\ntime_s = 1\nmode = \"acro\"\n").find("pilot.script[0].mode"),
-            std::string::npos);
+  EXPECT_NE(errorOf("[[pilot.script]]\ntime_s = 1\nmode = \"acro\"\n").find("pilot.script[0].mode"), std::string::npos);
   EXPECT_NE(errorOf("[[pilot.script]]\ntime_s = 1\narm = \"yes\"\n").find("pilot.script[0].arm"), std::string::npos);
   EXPECT_NE(errorOf("[[pilot.script]]\ntime_s = 2\n[[pilot.script]]\ntime_s = 2\n").find("pilot.script[1].time_s"),
             std::string::npos);

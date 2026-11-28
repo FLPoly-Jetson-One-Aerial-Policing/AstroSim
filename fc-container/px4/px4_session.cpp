@@ -24,12 +24,15 @@ fc::TimePoint::duration toDuration(double s) {
  * @param earlier Earlier time.
  * @return later - earlier in seconds.
  */
-double elapsed(fc::TimePoint later, fc::TimePoint earlier) { return Seconds(later - earlier).count(); }
+double elapsed(fc::TimePoint later, fc::TimePoint earlier) {
+  return Seconds(later - earlier).count();
+}
 
 }  // namespace
 
 Px4Session::Px4Session(const Px4SessionConfig& config)
-    : config_(config), hil_(kPx4SystemId, 51 /* MAV_COMP_ID_ONBOARD_COMPUTER4: the simulator */),
+    : config_(config),
+      hil_(kPx4SystemId, 51 /* MAV_COMP_ID_ONBOARD_COMPUTER4: the simulator */),
       mav_(kAdapterSystemId, kAdapterComponentId) {}
 
 void Px4Session::onHilConnected(fc::TimePoint now) {
@@ -119,8 +122,8 @@ void Px4Session::onSensors(const fc::SensorFrame& frame, fc::TimePoint) {
     last_gps_time_s_ = frame.time_s;
     hil_.sendHilGps(makeHilGps(frame));
   }
-  if (frame.truth && (!last_hil_state_time_s_ ||
-                      frame.time_s - *last_hil_state_time_s_ >= 1.0 / config_.hil_state_rate_hz - 1e-9)) {
+  if (frame.truth &&
+      (!last_hil_state_time_s_ || frame.time_s - *last_hil_state_time_s_ >= 1.0 / config_.hil_state_rate_hz - 1e-9)) {
     last_hil_state_time_s_ = frame.time_s;
     if (const auto s = makeHilStateQuaternion(frame)) hil_.sendHilStateQuaternion(*s);
   }

@@ -14,7 +14,9 @@ namespace {
 using std::chrono::milliseconds;
 
 /// @brief Time point `ms` milliseconds after an arbitrary non-zero origin.
-fc::TimePoint at(int ms) { return fc::TimePoint{} + std::chrono::seconds(1000) + milliseconds(ms); }
+fc::TimePoint at(int ms) {
+  return fc::TimePoint{} + std::chrono::seconds(1000) + milliseconds(ms);
+}
 
 /// @brief Encode a MAVLink message to bytes.
 Bytes bytesOf(const mavlink_message_t& msg) {
@@ -103,14 +105,9 @@ class Rig {
         seen.last_sensor_usec = h.time_usec;
         break;
       }
-      case MAVLINK_MSG_ID_HIL_GPS:
-        ++seen.gps;
-        break;
-      case MAVLINK_MSG_ID_HIL_STATE_QUATERNION:
-        ++seen.state;
-        break;
-      default:
-        break;
+      case MAVLINK_MSG_ID_HIL_GPS: ++seen.gps; break;
+      case MAVLINK_MSG_ID_HIL_STATE_QUATERNION: ++seen.state; break;
+      default: break;
     }
   }
 
@@ -165,8 +162,8 @@ TEST(Px4SessionHil, GpsAndTruthAreRateLimitedInSimulationTime) {
   for (int i = 0; i < 1000; ++i) r.s.onSensors(frameAt(10.0 + 0.004 * i, true), at(i));  // 250 Hz: 1000 frames are 4 s
   r.drain();
   EXPECT_EQ(r.seen.sensor, 1000);
-  EXPECT_NEAR(r.seen.gps, 40, 1);    // 10 Hz over 4 s
-  EXPECT_NEAR(r.seen.state, 100, 2); // 25 Hz over 4 s
+  EXPECT_NEAR(r.seen.gps, 40, 1);     // 10 Hz over 4 s
+  EXPECT_NEAR(r.seen.state, 100, 2);  // 25 Hz over 4 s
 }
 
 TEST(Px4SessionHil, TimeMustAdvance) {

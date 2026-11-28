@@ -28,6 +28,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/url"
+	"path"
 	"strings"
 	"time"
 
@@ -106,8 +107,33 @@ func NewHandler(opts Options) http.Handler {
 	if err != nil {
 		panic(err) // the embed is a compile-time constant
 	}
-	mux.Handle("GET /", http.FileServerFS(static))
+	mux.Handle("GET /", fixedTypes(http.FileServerFS(static)))
 	return h.guard(mux)
+}
+
+// staticTypes maps the extensions of the embedded dashboard files to their
+// Content-Type. The standard library would consult the host's MIME database
+// (the registry on Windows), which gives different answers per OS.
+var staticTypes = map[string]string{
+	".html": "text/html; charset=utf-8",
+	".js":   "text/javascript; charset=utf-8",
+	".css":  "text/css; charset=utf-8",
+}
+
+// fixedTypes wraps the static file handler so the dashboard files are served
+// with the same Content-Type on every OS. A path ending in "/" is the index
+// page. Errors and unknown extensions keep the file server's own behaviour.
+func fixedTypes(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		ext := path.Ext(r.URL.Path)
+		if strings.HasSuffix(r.URL.Path, "/") {
+			ext = ".html"
+		}
+		if ct, ok := staticTypes[ext]; ok {
+			w.Header().Set("Content-Type", ct)
+		}
+		next.ServeHTTP(w, r)
+	})
 }
 
 // guard applies the Host, Content-Type and Origin checks and sets the

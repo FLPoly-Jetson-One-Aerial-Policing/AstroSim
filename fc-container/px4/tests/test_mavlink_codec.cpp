@@ -93,9 +93,9 @@ TEST(HilGps, UnitsAndFields) {
   EXPECT_EQ(g.vn, 100);      // cm/s
   EXPECT_EQ(g.ve, 200);
   EXPECT_EQ(g.vd, -50);
-  EXPECT_EQ(g.vel, 224);     // ground speed, sqrt(1 + 4) m/s
+  EXPECT_EQ(g.vel, 224);  // ground speed, sqrt(1 + 4) m/s
   EXPECT_EQ(g.satellites_visible, 12);
-  EXPECT_EQ(g.cog, 6343);    // atan2(east 2, north 1) = 63.43 degrees clockwise from north
+  EXPECT_EQ(g.cog, 6343);  // atan2(east 2, north 1) = 63.43 degrees clockwise from north
   EXPECT_EQ(g.eph, 30);
   EXPECT_EQ(g.epv, 50);
 }
@@ -117,7 +117,7 @@ TEST(HilStateQuaternion, RequiresTruth) {
 TEST(HilStateQuaternion, AttitudeVelocityAndPositionInNed) {
   fc::SensorFrame f = frame();
   fc::Truth t;
-  t.quat = {0, 0, 0, 1};     // body FLU aligned with world ENU: the nose points East
+  t.quat = {0, 0, 0, 1};        // body FLU aligned with world ENU: the nose points East
   t.vel_enu = {2.0, 1.0, 0.5};  // east 2, north 1, up 0.5
   f.truth = t;
   const auto s = makeHilStateQuaternion(f);
@@ -127,9 +127,9 @@ TEST(HilStateQuaternion, AttitudeVelocityAndPositionInNed) {
   EXPECT_NEAR(s->attitude_quaternion[1], 0.0, 1e-6);
   EXPECT_NEAR(s->attitude_quaternion[2], 0.0, 1e-6);
   EXPECT_NEAR(s->attitude_quaternion[3], std::sqrt(0.5), 1e-6);
-  EXPECT_EQ(s->vx, 100);   // north
-  EXPECT_EQ(s->vy, 200);   // east
-  EXPECT_EQ(s->vz, -50);   // down
+  EXPECT_EQ(s->vx, 100);  // north
+  EXPECT_EQ(s->vy, 200);  // east
+  EXPECT_EQ(s->vz, -50);  // down
   EXPECT_EQ(s->lat, 473977420);
   EXPECT_EQ(s->alt, 498000);
   EXPECT_NEAR(s->rollspeed, 0.1f, 1e-6);
@@ -144,10 +144,10 @@ TEST(ManualControl, ScalingAndSigns) {
   in.throttle = 0.7f;
   const mavlink_manual_control_t m = makeManualControl(in);
   EXPECT_EQ(m.target, kPx4SystemId);
-  EXPECT_EQ(m.y, 500);    // roll right positive
-  EXPECT_EQ(m.x, -250);   // PX4: forward stick (positive x) is nose DOWN, so nose up is negative
+  EXPECT_EQ(m.y, 500);   // roll right positive
+  EXPECT_EQ(m.x, -250);  // PX4: forward stick (positive x) is nose DOWN, so nose up is negative
   EXPECT_EQ(m.r, -1000);
-  EXPECT_EQ(m.z, 700);    // throttle 0..1000, 500 neutral
+  EXPECT_EQ(m.z, 700);  // throttle 0..1000, 500 neutral
 }
 
 TEST(ManualControl, ThrottleRangeAndClamping) {
@@ -216,7 +216,7 @@ TEST(ActuatorControls, DisarmedIsZero) {
 }
 
 TEST(Modes, InterfaceToPx4) {
-  EXPECT_EQ(toPx4Mode(fc::FlightMode::kGpsHold, NoGpsMode::kAltctl), (Px4Mode{3, 0}));        // POSCTL
+  EXPECT_EQ(toPx4Mode(fc::FlightMode::kGpsHold, NoGpsMode::kAltctl), (Px4Mode{3, 0}));  // POSCTL
   EXPECT_EQ(toPx4Mode(fc::FlightMode::kGpsHold, NoGpsMode::kStabilized), (Px4Mode{3, 0}));
   EXPECT_EQ(toPx4Mode(fc::FlightMode::kNoGpsHold, NoGpsMode::kAltctl), (Px4Mode{2, 0}));      // ALTCTL
   EXPECT_EQ(toPx4Mode(fc::FlightMode::kNoGpsHold, NoGpsMode::kStabilized), (Px4Mode{7, 0}));  // STABILIZED

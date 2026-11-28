@@ -173,6 +173,21 @@ func (r *Recorder) Note(component, msg string) {
 	r.sink.logBlocking(entry{Time: r.o.Now(), Source: component, Line: marker(msg)})
 }
 
+// Line writes one plain line of text to the component's file and to
+// combined.log, as if the component had printed it. The orchestrator uses it
+// for output that does not come from the container, such as the progress of
+// an image download. Control characters and ANSI escapes are removed, and a
+// line that is empty afterwards is dropped.
+func (r *Recorder) Line(component, line string) {
+	if r == nil {
+		return
+	}
+	if line = cleanLine(line); line == "" {
+		return
+	}
+	r.sink.logBlocking(entry{Time: r.o.Now(), Source: component, Line: line})
+}
+
 // WriteZip writes a zip of the session's files as they are now to w, while
 // logging continues. Each file is copied up to the size it had when the
 // snapshot was taken, so the zip is consistent even if the file grows, and

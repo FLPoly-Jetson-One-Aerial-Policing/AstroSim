@@ -8,10 +8,11 @@
 //
 //	{
 //	  "version": "1.2.3",            // orchestrator version
-//	  "phase": "running",            // checking|unavailable|stopped|starting|running|recovering|stopping|failed
+//	  "phase": "running",            // checking|downloading|unavailable|stopped|starting|running|recovering|stopping|failed
 //	  "since": "2026-01-02T03:04:05Z", // when the phase was entered
 //	  "reason": {                    // why, after a failure or preflight problem; code is "" otherwise
-//	    "code": "images_missing",    // a supervisor Reason or Problem code
+//	    "code": "images_missing",    // a supervisor Reason or Problem code, including pull_network, pull_denied,
+//	                                 // pull_not_found, pull_no_space, pull_failed and, when stopped, pull_cancelled
 //	    "detail": "...",             // technical explanation
 //	    "component": "engine"        // component concerned, may be ""
 //	  },
@@ -24,6 +25,13 @@
 //	    "image": "astrosim-engine",
 //	    "installed": true,           // false when the image is not built
 //	    "buildCommand": "podman build ...", // "{runtime}" already substituted
+//	    "pullCommand": "podman pull ghcr.io/org/astrosim-engine:0.1.0", // "" unless the image names a registry
+//	    "download": {                // null unless phase is "downloading"
+//	      "state": "downloading",    // downloading|done|failed
+//	      "since": "2026-01-02T03:04:05Z",
+//	      "elapsedSeconds": 42,      // computed by the server
+//	      "output": "Copying blob sha256:..." // latest progress line, at most 200 characters
+//	    },
 //	    "state": "ready",            // pending|launching|starting|ready|stale|stopping|stopped|exited|failed
 //	    "facts": [{"key": "...", "label": "...", "value": "..."}],
 //	    "exitCode": null,            // last exit status or null
@@ -72,6 +80,19 @@ type Endpoint struct {
 	Address string `json:"address"`
 }
 
+// Download is the progress of fetching a component's image.
+type Download struct {
+	// State is "downloading", "done" or "failed".
+	State string `json:"state"`
+	// Since is when the download of this image began.
+	Since time.Time `json:"since"`
+	// ElapsedSeconds is how long it has taken (or took), computed by the
+	// server so clock differences with the browser do not matter.
+	ElapsedSeconds int `json:"elapsedSeconds"`
+	// Output is the latest progress line of the runtime, at most 200 characters.
+	Output string `json:"output"`
+}
+
 // Component is the status of one component.
 type Component struct {
 	// ID is the component ID.
@@ -86,6 +107,12 @@ type Component struct {
 	Installed bool `json:"installed"`
 	// BuildCommand is the command that builds the image, with the runtime name filled in.
 	BuildCommand string `json:"buildCommand"`
+	// PullCommand is the command that downloads the image, with the runtime
+	// name filled in; empty unless the image names a registry.
+	PullCommand string `json:"pullCommand"`
+	// Download is the progress of the image download; nil unless the stack
+	// is downloading.
+	Download *Download `json:"download"`
 	// State is the supervisor's component state.
 	State string `json:"state"`
 	// Facts are live status details from the health probe.

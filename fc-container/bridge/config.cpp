@@ -1,4 +1,4 @@
-/** @file config.cpp @brief TOML loading, environment overrides and validation. */
+/* TOML loading, environment overrides and validation. */
 #include "config.hpp"
 
 #include <algorithm>
@@ -187,8 +187,8 @@ void readTiming(const toml::table& root, const EnvLookup& env, Config::Timing& o
   const toml::table* t = sectionTable(root, "timing");
   if (t) {
     rejectUnknownKeys(*t, "timing",
-                      {"control_rate_hz", "subscribe_interval_s", "pilot_rate_hz", "fc_timeout_s",
-                       "telemetry_rate_hz", "stats_interval_s"});
+                      {"control_rate_hz", "subscribe_interval_s", "pilot_rate_hz", "fc_timeout_s", "telemetry_rate_hz",
+                       "stats_interval_s"});
   }
   const SectionReader r(t, "timing", env);
   out.control_rate_hz = r.getPositive("control_rate_hz", out.control_rate_hz);
