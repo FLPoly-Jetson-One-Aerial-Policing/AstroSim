@@ -115,13 +115,13 @@ TEST(FcWire, HeaderBytesPinEndianness) {
 
 TEST(FcWire, PayloadBytesPinLayout) {
   const auto b = encode(goldenTelemetry(), 0);
-  EXPECT_EQ(b[16], std::byte{kStatusConnected | kStatusArmed});  // status
-  EXPECT_EQ(b[17], std::byte{1});                                // mode = no-GPS hold
-  EXPECT_EQ(b[18], std::byte{3});                                // gps fix
-  EXPECT_EQ(b[19], std::byte{12});                               // satellites
-  EXPECT_EQ(b[20], std::byte{3});                                // provenance
+  EXPECT_EQ(b[16], std::byte{kStatusConnected | kStatusArmed});      // status
+  EXPECT_EQ(b[17], std::byte{1});                                    // mode = no-GPS hold
+  EXPECT_EQ(b[18], std::byte{3});                                    // gps fix
+  EXPECT_EQ(b[19], std::byte{12});                                   // satellites
+  EXPECT_EQ(b[20], std::byte{3});                                    // provenance
   EXPECT_EQ(b[21], std::byte{kWarnEkfUnhealthy | kWarnLowBattery});  // warnings low byte
-  EXPECT_EQ(b[22], std::byte{0});                                // warnings high byte
+  EXPECT_EQ(b[22], std::byte{0});                                    // warnings high byte
 }
 
 TEST(FcWire, TelemetryRoundTrip) {

@@ -58,11 +58,9 @@ Px4Mode toPx4Mode(fc::FlightMode mode, NoGpsMode no_gps) {
 std::optional<fc::FlightMode> fromPx4Mode(const Px4Mode& mode) {
   if (mode.sub_mode != 0) return std::nullopt;
   switch (static_cast<Px4MainMode>(mode.main_mode)) {
-    case Px4MainMode::kPosctl:
-      return fc::FlightMode::kGpsHold;
+    case Px4MainMode::kPosctl: return fc::FlightMode::kGpsHold;
     case Px4MainMode::kAltctl:
-    case Px4MainMode::kStabilized:
-      return fc::FlightMode::kNoGpsHold;
+    case Px4MainMode::kStabilized: return fc::FlightMode::kNoGpsHold;
   }
   return std::nullopt;
 }

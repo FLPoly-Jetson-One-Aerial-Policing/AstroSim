@@ -35,11 +35,11 @@ enum class FlightMode : std::uint8_t {
 
 /// @brief Bits of FcTelemetryMsg::warnings (failsafe and warning mask).
 enum FcWarning : std::uint16_t {
-  kWarnGpsLost = 1,       ///< GPS fix lost or unusable.
-  kWarnEkfUnhealthy = 2,  ///< State estimator is not healthy.
-  kWarnPilotLost = 4,     ///< Pilot (RC) input lost.
-  kWarnLowBattery = 8,    ///< Battery low.
-  kWarnMotorFailure = 16, ///< A motor failure was detected.
+  kWarnGpsLost = 1,        ///< GPS fix lost or unusable.
+  kWarnEkfUnhealthy = 2,   ///< State estimator is not healthy.
+  kWarnPilotLost = 4,      ///< Pilot (RC) input lost.
+  kWarnLowBattery = 8,     ///< Battery low.
+  kWarnMotorFailure = 16,  ///< A motor failure was detected.
 };
 
 /// @brief Bits of FcTelemetryMsg::provenance: how trustworthy/temporary the data feeding the FC is.
@@ -62,26 +62,26 @@ enum FcGpsFix : std::uint8_t {
  * clockwise from true north; vertical speed is positive up.
  */
 struct FcTelemetryMsg {
-  double time_s = 0;                           ///< Simulation time of the sensor frame this was derived from, s.
-  bool connected = false;                      ///< The FC (adapter link) is alive and talking.
-  bool armed = false;                          ///< Motors armed.
-  bool mode_refused = false;                   ///< The requested FlightMode was refused (e.g. GPS hold, no fix).
-  FlightMode mode = FlightMode::kGpsHold;      ///< Active flight mode.
-  std::uint8_t gps_fix = 0;                    ///< FcGpsFix value.
-  std::uint8_t gps_sats = 0;                   ///< Satellites used.
-  std::uint8_t provenance = 0;                 ///< Bitwise OR of FcProvenance.
-  std::uint16_t warnings = 0;                  ///< Bitwise OR of FcWarning.
-  float roll_rad = 0;                          ///< Estimated roll, rad, right wing down positive.
-  float pitch_rad = 0;                         ///< Estimated pitch, rad, nose up positive.
-  float heading_rad = 0;                       ///< Estimated heading, rad, clockwise from north, [0, 2*pi).
-  float alt_msl_m = 0;                         ///< Altitude above mean sea level, m.
-  float alt_agl_m = 0;                         ///< Altitude above ground level, m.
-  float vspeed_mps = 0;                        ///< Vertical speed, m/s, positive up.
-  float ground_speed_mps = 0;                  ///< Ground speed, m/s.
-  float course_rad = 0;                        ///< Course over ground, rad, clockwise from north, [0, 2*pi).
-  float battery_pct = 0;                       ///< Battery remaining, percent (placeholder until a battery model).
-  float battery_v = 0;                         ///< Battery voltage, V (placeholder until a battery model).
-  std::array<float, kNumMotors> motors{};      ///< Motor outputs actually commanded, [0,1], protocol motor order.
+  double time_s = 0;                       ///< Simulation time of the sensor frame this was derived from, s.
+  bool connected = false;                  ///< The FC (adapter link) is alive and talking.
+  bool armed = false;                      ///< Motors armed.
+  bool mode_refused = false;               ///< The requested FlightMode was refused (e.g. GPS hold, no fix).
+  FlightMode mode = FlightMode::kGpsHold;  ///< Active flight mode.
+  std::uint8_t gps_fix = 0;                ///< FcGpsFix value.
+  std::uint8_t gps_sats = 0;               ///< Satellites used.
+  std::uint8_t provenance = 0;             ///< Bitwise OR of FcProvenance.
+  std::uint16_t warnings = 0;              ///< Bitwise OR of FcWarning.
+  float roll_rad = 0;                      ///< Estimated roll, rad, right wing down positive.
+  float pitch_rad = 0;                     ///< Estimated pitch, rad, nose up positive.
+  float heading_rad = 0;                   ///< Estimated heading, rad, clockwise from north, [0, 2*pi).
+  float alt_msl_m = 0;                     ///< Altitude above mean sea level, m.
+  float alt_agl_m = 0;                     ///< Altitude above ground level, m.
+  float vspeed_mps = 0;                    ///< Vertical speed, m/s, positive up.
+  float ground_speed_mps = 0;              ///< Ground speed, m/s.
+  float course_rad = 0;                    ///< Course over ground, rad, clockwise from north, [0, 2*pi).
+  float battery_pct = 0;                   ///< Battery remaining, percent (placeholder until a battery model).
+  float battery_v = 0;                     ///< Battery voltage, V (placeholder until a battery model).
+  std::array<float, kNumMotors> motors{};  ///< Motor outputs actually commanded, [0,1], protocol motor order.
 
   /// @brief Member-wise equality.
   friend bool operator==(const FcTelemetryMsg&, const FcTelemetryMsg&) = default;
@@ -98,10 +98,10 @@ enum FcStatusBits : std::uint8_t {
 
 namespace astrosim::proto::fc_wire {
 
-inline constexpr std::uint16_t kMagic = 0xA5FC;       ///< First two bytes of every datagram (LE: 0xFC 0xA5).
-inline constexpr std::uint8_t kVersion = 1;           ///< Protocol version; any layout change bumps it.
-inline constexpr std::uint16_t kDefaultPort = 8766;   ///< Default UDP port the FC telemetry server listens on.
-inline constexpr std::size_t kHeaderSize = 8;         ///< Bytes in the common header.
+inline constexpr std::uint16_t kMagic = 0xA5FC;      ///< First two bytes of every datagram (LE: 0xFC 0xA5).
+inline constexpr std::uint8_t kVersion = 1;          ///< Protocol version; any layout change bumps it.
+inline constexpr std::uint16_t kDefaultPort = 8766;  ///< Default UDP port the FC telemetry server listens on.
+inline constexpr std::size_t kHeaderSize = 8;        ///< Bytes in the common header.
 /// @brief Total datagram size of a Telemetry message (95).
 inline constexpr std::size_t kTelemetrySize = kHeaderSize + 8 + 5 + 2 + 4 * 10 + 4 * kNumMotors;
 /// @brief Total datagram size of a Subscribe message (8).

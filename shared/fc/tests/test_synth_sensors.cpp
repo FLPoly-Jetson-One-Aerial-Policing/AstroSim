@@ -72,7 +72,7 @@ TEST(TemporarySynthSensors, AccelerationIsLowPassed) {
   c.accel_filter_tau_s = 0.1;
   TemporarySynthSensors s(c);
   EXPECT_FALSE(s.onState(state(0.0)).has_value());
-  s.onState(state(0.01));  // initializes the filter at zero acceleration
+  s.onState(state(0.01));                               // initializes the filter at zero acceleration
   const auto f = s.onState(state(0.02, {0.1f, 0, 0}));  // raw 10 m/s^2 along East
   ASSERT_TRUE(f.has_value());
   EXPECT_GT(f->accel[0], 0.0);
@@ -166,15 +166,15 @@ TEST(TemporarySynthSensors, BaroMonotonicInAltitude) {
 /// @brief First sample, duplicate time and non-finite input give no frame; backwards time resets history.
 TEST(TemporarySynthSensors, TimeHandling) {
   TemporarySynthSensors s(SynthConfig{});
-  EXPECT_FALSE(s.onState(state(5.0)).has_value());      // first sample
-  EXPECT_FALSE(s.onState(state(5.0)).has_value());      // duplicate timestamp
+  EXPECT_FALSE(s.onState(state(5.0)).has_value());  // first sample
+  EXPECT_FALSE(s.onState(state(5.0)).has_value());  // duplicate timestamp
   EXPECT_TRUE(s.onState(state(5.01)).has_value());
-  EXPECT_FALSE(s.onState(state(1.0)).has_value());      // backwards: reset, new baseline
-  EXPECT_TRUE(s.onState(state(1.01)).has_value());      // history restarted from 1.0
+  EXPECT_FALSE(s.onState(state(1.0)).has_value());  // backwards: reset, new baseline
+  EXPECT_TRUE(s.onState(state(1.01)).has_value());  // history restarted from 1.0
   proto::StateMsg bad = state(2.0);
   bad.vel[0] = std::nanf("");
   EXPECT_FALSE(s.onState(bad).has_value());
-  EXPECT_TRUE(s.onState(state(1.02)).has_value());      // bad state did not disturb the baseline
+  EXPECT_TRUE(s.onState(state(1.02)).has_value());  // bad state did not disturb the baseline
 }
 
 /// @brief reset() forgets the baseline.

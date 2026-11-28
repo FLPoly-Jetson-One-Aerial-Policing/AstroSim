@@ -108,8 +108,8 @@ void logConfig(const Config& c) {
             c.timing.telemetry_rate_hz, c.timing.stats_interval_s);
   log::info("config: telemetry server {}:{} max_subscribers={} subscriber_timeout={}s", c.telemetry.bind,
             c.telemetry.port, c.telemetry.max_subscribers, c.telemetry.subscriber_timeout_s);
-  log::info("config: adapter={} sensor_source={} home=({}, {}, {} m)", c.fc.adapter, c.fc.sensor_source,
-            c.home.lat_deg, c.home.lon_deg, c.home.alt_m);
+  log::info("config: adapter={} sensor_source={} home=({}, {}, {} m)", c.fc.adapter, c.fc.sensor_source, c.home.lat_deg,
+            c.home.lon_deg, c.home.alt_m);
   log::info("config: pilot script with {} keyframe(s)", c.pilot.script.size());
 }
 

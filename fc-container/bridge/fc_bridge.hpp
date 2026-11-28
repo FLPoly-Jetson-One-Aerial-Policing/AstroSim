@@ -31,25 +31,25 @@ using TimePoint = Clock::time_point;      ///< A point in time on Clock.
 
 /** @brief Monotonic counters describing bridge activity. */
 struct BridgeStats {
-  std::uint64_t rx_engine = 0;            ///< Datagrams received from the engine endpoint.
-  std::uint64_t rx_state = 0;             ///< Well-formed State messages received.
-  std::uint64_t engine_malformed = 0;     ///< Malformed datagrams from the engine endpoint.
-  std::uint64_t engine_unexpected = 0;    ///< Well-formed messages the engine must not send (Control, Subscribe).
-  std::uint64_t engine_foreign = 0;       ///< Datagrams on the engine link from some other endpoint (dropped).
-  std::uint64_t sensor_frames = 0;        ///< Sensor frames handed to the FC.
-  std::uint64_t sensor_skipped = 0;       ///< States that produced no sensor frame.
-  std::uint64_t pilot_samples = 0;        ///< Pilot commands handed to the FC.
-  std::uint64_t motor_commands = 0;       ///< MotorCommands taken from the FC.
-  std::uint64_t tx_subscribe = 0;         ///< Subscribe keepalives sent to the engine.
-  std::uint64_t tx_control = 0;           ///< Control messages sent to the engine.
-  std::uint64_t tx_control_failsafe = 0;  ///< Of those, the ones that were forced to zero power.
-  std::uint64_t failsafe_entries = 0;     ///< Times the bridge entered failsafe.
-  std::uint64_t deadman_seen = 0;         ///< Times the engine reported DEADMAN_TRIPPED (rising edges).
-  std::uint64_t rx_telemetry_subscribe = 0;      ///< Well-formed telemetry Subscribe messages.
-  std::uint64_t telemetry_malformed = 0;         ///< Malformed datagrams on the telemetry port.
-  std::uint64_t telemetry_unexpected = 0;        ///< Well-formed telemetry messages a client must not send.
-  std::uint64_t telemetry_subscriber_rejects = 0;///< Subscribers refused because the cap was reached.
-  std::uint64_t tx_telemetry = 0;                ///< Telemetry datagrams sent.
+  std::uint64_t rx_engine = 0;               ///< Datagrams received from the engine endpoint.
+  std::uint64_t rx_state = 0;                ///< Well-formed State messages received.
+  std::uint64_t engine_malformed = 0;        ///< Malformed datagrams from the engine endpoint.
+  std::uint64_t engine_unexpected = 0;       ///< Well-formed messages the engine must not send (Control, Subscribe).
+  std::uint64_t engine_foreign = 0;          ///< Datagrams on the engine link from some other endpoint (dropped).
+  std::uint64_t sensor_frames = 0;           ///< Sensor frames handed to the FC.
+  std::uint64_t sensor_skipped = 0;          ///< States that produced no sensor frame.
+  std::uint64_t pilot_samples = 0;           ///< Pilot commands handed to the FC.
+  std::uint64_t motor_commands = 0;          ///< MotorCommands taken from the FC.
+  std::uint64_t tx_subscribe = 0;            ///< Subscribe keepalives sent to the engine.
+  std::uint64_t tx_control = 0;              ///< Control messages sent to the engine.
+  std::uint64_t tx_control_failsafe = 0;     ///< Of those, the ones that were forced to zero power.
+  std::uint64_t failsafe_entries = 0;        ///< Times the bridge entered failsafe.
+  std::uint64_t deadman_seen = 0;            ///< Times the engine reported DEADMAN_TRIPPED (rising edges).
+  std::uint64_t rx_telemetry_subscribe = 0;  ///< Well-formed telemetry Subscribe messages.
+  std::uint64_t telemetry_malformed = 0;     ///< Malformed datagrams on the telemetry port.
+  std::uint64_t telemetry_unexpected = 0;    ///< Well-formed telemetry messages a client must not send.
+  std::uint64_t telemetry_subscriber_rejects = 0;  ///< Subscribers refused because the cap was reached.
+  std::uint64_t tx_telemetry = 0;                  ///< Telemetry datagrams sent.
 };
 
 /** @brief Why the bridge is forcing zero power. */
@@ -171,10 +171,10 @@ class FcBridge {
   std::uint32_t subscribe_seq_ = 0;
   std::uint32_t control_seq_ = 0;
 
-  bool have_state_ = false;          ///< At least one State has arrived.
-  double sim_time_ = 0;              ///< sim_time of the latest State.
-  std::uint8_t engine_flags_ = 0;    ///< StateMsg::flags of the latest State.
-  std::uint32_t echo_seq_ = 0;       ///< StateMsg::echo_seq of the latest State.
+  bool have_state_ = false;        ///< At least one State has arrived.
+  double sim_time_ = 0;            ///< sim_time of the latest State.
+  std::uint8_t engine_flags_ = 0;  ///< StateMsg::flags of the latest State.
+  std::uint32_t echo_seq_ = 0;     ///< StateMsg::echo_seq of the latest State.
 
   std::optional<fc::MotorCommand> last_cmd_;  ///< Latest command from the FC.
   TimePoint last_cmd_time_{};                 ///< When last_cmd_ arrived.

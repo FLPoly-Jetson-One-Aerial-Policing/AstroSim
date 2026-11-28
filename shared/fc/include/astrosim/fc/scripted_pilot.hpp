@@ -17,8 +17,8 @@ namespace astrosim::fc {
 
 /// @brief One point of the pilot script.
 struct Keyframe {
-  double time_s = 0;    ///< Time at which this command takes effect, s.
-  PilotInput input;     ///< Command from this time on.
+  double time_s = 0;  ///< Time at which this command takes effect, s.
+  PilotInput input;   ///< Command from this time on.
 };
 
 /// @brief How the continuous axes (roll, pitch, yaw, throttle) behave between keyframes.

@@ -26,7 +26,9 @@ std::map<std::string, double> params(const std::string& text) {
   return out;
 }
 
-aircraft::Aircraft sample() { return aircraft::loadAircraft(ASTROSIM_AIRCRAFT_TOML); }
+aircraft::Aircraft sample() {
+  return aircraft::loadAircraft(ASTROSIM_AIRCRAFT_TOML);
+}
 
 }  // namespace
 

@@ -69,7 +69,8 @@ int main(int argc, char** argv) {
   try {
     astrosim::px4::AirframeOptions options;
     if (!config_path.empty()) {
-      const astrosim::fcbridge::Config cfg = astrosim::fcbridge::loadConfig(config_path, astrosim::fcbridge::processEnv);
+      const astrosim::fcbridge::Config cfg =
+          astrosim::fcbridge::loadConfig(config_path, astrosim::fcbridge::processEnv);
       options.max_tilt_deg = cfg.px4.max_tilt_deg;
       options.max_yaw_rate_dps = cfg.px4.max_yaw_rate_dps;
     }

@@ -159,8 +159,8 @@ TEST(Px4Telemetry, UnrepresentableModeKeepsTheLastOneAndPassesRefusalThrough) {
 
 TEST(Px4Telemetry, IgnoresOtherSystemsAndOtherAutopilots) {
   Px4Telemetry t;
-  t.onMessage(heartbeat(2, MAV_AUTOPILOT_PX4, true, {3, 0}), kT0);       // another system
-  t.onMessage(heartbeat(1, MAV_AUTOPILOT_INVALID, true, {3, 0}), kT0);   // a non-autopilot component of PX4's system
+  t.onMessage(heartbeat(2, MAV_AUTOPILOT_PX4, true, {3, 0}), kT0);      // another system
+  t.onMessage(heartbeat(1, MAV_AUTOPILOT_INVALID, true, {3, 0}), kT0);  // a non-autopilot component of PX4's system
   EXPECT_FALSE(t.heartbeatSeen());
   EXPECT_FALSE(t.build(true, false).armed);
   mavlink_attitude_t a{};

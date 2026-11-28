@@ -39,25 +39,25 @@ namespace astrosim::px4 {
  * accelerometer about 5 mm/s^2). Disable it when the sensors carry their own noise. Deterministic (fixed seed).
  */
 struct SensorDither {
-  bool enabled = true;           ///< Apply the dither.
-  double gyro_rad_s = 2e-3;      ///< Amplitude on each gyro axis, rad/s.
-  double accel_m_s2 = 0.03;      ///< Amplitude on each accelerometer axis, m/s^2.
-  double mag_gauss = 2e-3;       ///< Amplitude on each magnetometer axis, gauss.
-  double pressure_pa = 0.5;      ///< Amplitude on the static pressure, Pa.
-  double temperature_c = 0.01;   ///< Amplitude on the temperature, degrees Celsius.
+  bool enabled = true;          ///< Apply the dither.
+  double gyro_rad_s = 2e-3;     ///< Amplitude on each gyro axis, rad/s.
+  double accel_m_s2 = 0.03;     ///< Amplitude on each accelerometer axis, m/s^2.
+  double mag_gauss = 2e-3;      ///< Amplitude on each magnetometer axis, gauss.
+  double pressure_pa = 0.5;     ///< Amplitude on the static pressure, Pa.
+  double temperature_c = 0.01;  ///< Amplitude on the temperature, degrees Celsius.
 };
 
 /// @brief Tunables of Px4Session. The defaults suit PX4 SITL.
 struct Px4SessionConfig {
   SensorDither dither;                         ///< Stuck-sensor guard, see SensorDither.
   NoGpsMode no_gps_mode = NoGpsMode::kAltctl;  ///< PX4 mode implementing kNoGpsHold.
-  double manual_control_rate_hz = 50;          ///< MANUAL_CONTROL rate (PX4 treats manual control as lost after ~0.5 s).
-  double gps_rate_hz = 10;                     ///< HIL_GPS rate, in simulation time.
-  double hil_state_rate_hz = 25;               ///< HIL_STATE_QUATERNION (truth) rate, in simulation time.
-  double link_timeout_s = 3;                   ///< PX4 silent (no HEARTBEAT) this long means disconnected.
-  double command_retry_s = 1;                  ///< Interval between retries of DO_SET_MODE and ARM_DISARM.
-  double mode_refused_after_s = 2.5;           ///< Wrong mode this long after a request counts as refused.
-  double arm_give_up_s = 15;                   ///< Stop retrying an arm request after this long.
+  double manual_control_rate_hz = 50;  ///< MANUAL_CONTROL rate (PX4 treats manual control as lost after ~0.5 s).
+  double gps_rate_hz = 10;             ///< HIL_GPS rate, in simulation time.
+  double hil_state_rate_hz = 25;       ///< HIL_STATE_QUATERNION (truth) rate, in simulation time.
+  double link_timeout_s = 3;           ///< PX4 silent (no HEARTBEAT) this long means disconnected.
+  double command_retry_s = 1;          ///< Interval between retries of DO_SET_MODE and ARM_DISARM.
+  double mode_refused_after_s = 2.5;   ///< Wrong mode this long after a request counts as refused.
+  double arm_give_up_s = 15;           ///< Stop retrying an arm request after this long.
 };
 
 /**

@@ -84,11 +84,12 @@ Px4Adapter::Px4Adapter(const Px4AdapterConfig& config) : config_(config), sessio
     throw;
   }
   if (config.session.dither.enabled) {
-    log::warn("px4: adding a tiny dither to the sensors (PX4 drops a sensor whose value never changes; the "
-              "synthesized sensors are noise free). Set [px4] sensor_dither = false when sensors carry real noise.");
+    log::warn(
+        "px4: adding a tiny dither to the sensors (PX4 drops a sensor whose value never changes; the "
+        "synthesized sensors are noise free). Set [px4] sensor_dither = false when sensors carry real noise.");
   }
-  log::info("px4: HIL link listening on tcp/{}, MAVLink on udp/{} to {}:{}", config.hil_port,
-            config.mavlink_local_port, config.mavlink_host, config.mavlink_port);
+  log::info("px4: HIL link listening on tcp/{}, MAVLink on udp/{} to {}:{}", config.hil_port, config.mavlink_local_port,
+            config.mavlink_host, config.mavlink_port);
 }
 
 Px4Adapter::~Px4Adapter() {
@@ -218,7 +219,8 @@ std::unique_ptr<fc::FlightComputer> makePx4Adapter(const Config& config) {
   c.mavlink_local_port = config.px4.mavlink_local_port;
   c.mavlink_host = config.px4.mavlink_host;
   c.mavlink_port = config.px4.mavlink_port;
-  c.session.no_gps_mode = config.px4.no_gps_mode == "stabilized" ? px4::NoGpsMode::kStabilized : px4::NoGpsMode::kAltctl;
+  c.session.no_gps_mode =
+      config.px4.no_gps_mode == "stabilized" ? px4::NoGpsMode::kStabilized : px4::NoGpsMode::kAltctl;
   c.session.dither.enabled = config.px4.sensor_dither;
   return std::make_unique<px4::Px4Adapter>(c);
 }

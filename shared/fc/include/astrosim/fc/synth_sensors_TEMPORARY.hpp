@@ -21,12 +21,12 @@ namespace astrosim::fc {
 
 /// @brief Configuration of TemporarySynthSensors.
 struct SynthConfig {
-  double home_lat_deg = 0;                  ///< Geodetic latitude of the world origin, degrees, [-90, 90].
-  double home_lon_deg = 0;                  ///< Geodetic longitude of the world origin, degrees, [-180, 180].
-  double home_alt_m = 0;                    ///< Altitude of the world origin above mean sea level, m.
-  Vec3 mag_field_enu_gauss{0.0, 0.2, -0.4}; ///< World magnetic field (East, North, Up), gauss.
-  double accel_filter_tau_s = 0.02;         ///< Low-pass time constant of the finite-difference acceleration, s, >= 0.
-  std::uint8_t gps_satellites = 12;         ///< Satellite count reported with the (always 3D) fix.
+  double home_lat_deg = 0;                   ///< Geodetic latitude of the world origin, degrees, [-90, 90].
+  double home_lon_deg = 0;                   ///< Geodetic longitude of the world origin, degrees, [-180, 180].
+  double home_alt_m = 0;                     ///< Altitude of the world origin above mean sea level, m.
+  Vec3 mag_field_enu_gauss{0.0, 0.2, -0.4};  ///< World magnetic field (East, North, Up), gauss.
+  double accel_filter_tau_s = 0.02;          ///< Low-pass time constant of the finite-difference acceleration, s, >= 0.
+  std::uint8_t gps_satellites = 12;          ///< Satellite count reported with the (always 3D) fix.
 };
 
 /**
@@ -71,11 +71,11 @@ class TemporarySynthSensors final : public SensorSource {
 
  private:
   SynthConfig config_;
-  bool have_previous_ = false;       ///< A previous sample exists.
-  double previous_time_s_ = 0;       ///< sim_time of the previous sample.
-  Vec3 previous_vel_enu_{};          ///< World velocity of the previous sample.
-  bool have_accel_ = false;          ///< The acceleration filter is initialized.
-  Vec3 accel_enu_{};                 ///< Low-passed world-frame kinematic acceleration, m/s^2.
+  bool have_previous_ = false;  ///< A previous sample exists.
+  double previous_time_s_ = 0;  ///< sim_time of the previous sample.
+  Vec3 previous_vel_enu_{};     ///< World velocity of the previous sample.
+  bool have_accel_ = false;     ///< The acceleration filter is initialized.
+  Vec3 accel_enu_{};            ///< Low-passed world-frame kinematic acceleration, m/s^2.
 };
 
 }  // namespace astrosim::fc

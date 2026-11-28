@@ -54,10 +54,10 @@ struct Config {
   };
   /** @brief The FC telemetry server ([telemetry]). */
   struct Telemetry {
-    std::string bind = "0.0.0.0";        ///< IPv4 dotted-quad address to bind.
-    std::uint16_t port = 8766;           ///< UDP port, 1..65535.
-    std::size_t max_subscribers = 8;     ///< Maximum concurrent subscribers, >= 1.
-    double subscriber_timeout_s = 5;     ///< Subscriber silence after which it is dropped.
+    std::string bind = "0.0.0.0";     ///< IPv4 dotted-quad address to bind.
+    std::uint16_t port = 8766;        ///< UDP port, 1..65535.
+    std::size_t max_subscribers = 8;  ///< Maximum concurrent subscribers, >= 1.
+    double subscriber_timeout_s = 5;  ///< Subscriber silence after which it is dropped.
   };
   /** @brief Which flight computer and sensor source to use ([fc]). */
   struct Fc {
@@ -74,9 +74,9 @@ struct Config {
   };
   /** @brief World magnetic field in ENU, gauss ([mag]). */
   struct Mag {
-    double east_gauss = 0.0;    ///< East component.
-    double north_gauss = 0.2;   ///< North component.
-    double up_gauss = -0.4;     ///< Up component (negative in the northern hemisphere).
+    double east_gauss = 0.0;   ///< East component.
+    double north_gauss = 0.2;  ///< North component.
+    double up_gauss = -0.4;    ///< Up component (negative in the northern hemisphere).
   };
   /**
    * @brief PX4 adapter settings ([px4]); see fc-container/px4/README.md.
@@ -86,13 +86,13 @@ struct Config {
    * PX4 sends there and listens on mavlink_port). The defaults are those of PX4 SITL instance 0.
    */
   struct Px4 {
-    std::uint16_t hil_port = 4560;               ///< TCP port the adapter listens on for PX4's HIL connection.
-    std::uint16_t mavlink_local_port = 14540;    ///< UDP port this process binds (PX4's onboard instance sends here).
-    std::string mavlink_host = "127.0.0.1";      ///< IPv4 address of PX4's onboard MAVLink instance.
-    std::uint16_t mavlink_port = 14580;          ///< UDP port PX4's onboard MAVLink instance listens on.
-    std::string no_gps_mode = "altctl";          ///< PX4 mode for kNoGpsHold: "altctl" or "stabilized".
-    double max_tilt_deg = 25;                    ///< Tilt of a full roll/pitch stick (MPC_MAN_TILT_MAX), degrees, (0, 60].
-    double max_yaw_rate_dps = 45;                ///< Yaw rate of a full yaw stick (MPC_MAN_Y_MAX), deg/s, (0, 360].
+    std::uint16_t hil_port = 4560;             ///< TCP port the adapter listens on for PX4's HIL connection.
+    std::uint16_t mavlink_local_port = 14540;  ///< UDP port this process binds (PX4's onboard instance sends here).
+    std::string mavlink_host = "127.0.0.1";    ///< IPv4 address of PX4's onboard MAVLink instance.
+    std::uint16_t mavlink_port = 14580;        ///< UDP port PX4's onboard MAVLink instance listens on.
+    std::string no_gps_mode = "altctl";        ///< PX4 mode for kNoGpsHold: "altctl" or "stabilized".
+    double max_tilt_deg = 25;      ///< Tilt of a full roll/pitch stick (MPC_MAN_TILT_MAX), degrees, (0, 60].
+    double max_yaw_rate_dps = 45;  ///< Yaw rate of a full yaw stick (MPC_MAN_Y_MAX), deg/s, (0, 360].
     /// Add a tiny dither to the sensors: PX4 treats a constant (noise-free) sensor as stuck. See px4/README.md.
     bool sensor_dither = true;
   };

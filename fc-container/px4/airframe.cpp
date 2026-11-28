@@ -142,8 +142,8 @@ AirframeTuning deriveTuning(const aircraft::Aircraft& a, const std::vector<doubl
 
 Airframe generateAirframe(const aircraft::Aircraft& a, const AirframeOptions& options) {
   if (a.motors.empty() || a.motors.size() > kMaxPx4Rotors) {
-    throw std::invalid_argument(std::format("airframe: PX4 supports 1..{} rotors (the aircraft has {})", kMaxPx4Rotors,
-                                            a.motors.size()));
+    throw std::invalid_argument(
+        std::format("airframe: PX4 supports 1..{} rotors (the aircraft has {})", kMaxPx4Rotors, a.motors.size()));
   }
   if (!(options.max_tilt_deg > 0 && options.max_tilt_deg <= 60) || !std::isfinite(options.max_tilt_deg) ||
       !(options.max_yaw_rate_dps > 0 && options.max_yaw_rate_dps <= 360) || !std::isfinite(options.max_yaw_rate_dps)) {
@@ -202,18 +202,18 @@ Airframe generateAirframe(const aircraft::Aircraft& a, const AirframeOptions& op
   t += "# Control allocation: multirotor with the rotor geometry below.\nparam set-default CA_AIRFRAME 0\n";
   t += std::format("param set-default CA_ROTOR_COUNT {}\n\n", a.motors.size());
 
-  t +=
-      "# Rotors. PX/PY/PZ: hub position relative to the loaded centre of mass, FRD, m.\n"
-      "# KM: torque / thrust; positive for a counter-clockwise rotor seen from above, negative for clockwise (PX4).\n"
-      "# CT: thrust coefficient relative to the mean rotor (PX4's default 6.5 is the mean), so the allocator knows\n"
-      "# unequal rotors (e.g. the lower coaxial prop) apart.\n";
+  t += "# Rotors. PX/PY/PZ: hub position relative to the loaded centre of mass, FRD, m.\n"
+       "# KM: torque / thrust; positive for a counter-clockwise rotor seen from above, negative for clockwise (PX4).\n"
+       "# CT: thrust coefficient relative to the mean rotor (PX4's default 6.5 is the mean), so the allocator knows\n"
+       "# unequal rotors (e.g. the lower coaxial prop) apart.\n";
   for (std::size_t i = 0; i < a.motors.size(); ++i) {
-    t += std::format("param set-default CA_ROTOR{0}_PX {1:.4f}\n"
-                     "param set-default CA_ROTOR{0}_PY {2:.4f}\n"
-                     "param set-default CA_ROTOR{0}_PZ {3:.4f}\n"
-                     "param set-default CA_ROTOR{0}_KM {4:.4f}\n"
-                     "param set-default CA_ROTOR{0}_CT {5:.4f}\n",
-                     i, px[i], py[i], pz[i], km[i], ct[i]);
+    t += std::format(
+        "param set-default CA_ROTOR{0}_PX {1:.4f}\n"
+        "param set-default CA_ROTOR{0}_PY {2:.4f}\n"
+        "param set-default CA_ROTOR{0}_PZ {3:.4f}\n"
+        "param set-default CA_ROTOR{0}_KM {4:.4f}\n"
+        "param set-default CA_ROTOR{0}_CT {5:.4f}\n",
+        i, px[i], py[i], pz[i], km[i], ct[i]);
   }
   t += "\n# Outputs: PWM_MAIN_FUNCn = Motor n, so PX4 output i is protocol motor i.\n";
   for (std::size_t i = 0; i < a.motors.size(); ++i) {
@@ -233,16 +233,18 @@ Airframe generateAirframe(const aircraft::Aircraft& a, const AirframeOptions& op
       "param set-default MPC_MAN_Y_MAX {:.1f}\n"
       "param set-default MC_YAWRATE_MAX {:.1f}\n"
       "\n",
-      weight, total_thrust, hover, options.max_tilt_deg, options.max_yaw_rate_dps,
-      options.max_yaw_rate_dps);
+      weight, total_thrust, hover, options.max_tilt_deg, options.max_yaw_rate_dps, options.max_yaw_rate_dps);
 
   const AirframeTuning& g = out.tuning;
   t += std::format(
       "# Control gains derived from the aircraft data (astrosim-px4-airframe; PX4's defaults are for a small, fast\n"
-      "# quadrotor and make this aircraft oscillate). Rotor lag {:.3f} s sets the rate-loop crossover to {:.1f} rad/s and\n"
-      "# the attitude loop to {:.1f} rad/s; the velocity loop is 0.4 of the attitude loop, the position loop 0.4 of that.\n"
+      "# quadrotor and make this aircraft oscillate). Rotor lag {:.3f} s sets the rate-loop crossover to {:.1f} rad/s "
+      "and\n"
+      "# the attitude loop to {:.1f} rad/s; the velocity loop is 0.4 of the attitude loop, the position loop 0.4 of "
+      "that.\n"
       "# Angular acceleration per unit normalized command: roll {:.1f}, pitch {:.1f}, yaw {:.2f} rad/s^2.\n"
-      "# Placeholders: they follow the guessed aircraft data and are to be re-derived (or flight-tuned) with real data.\n"
+      "# Placeholders: they follow the guessed aircraft data and are to be re-derived (or flight-tuned) with real "
+      "data.\n"
       "param set-default MC_ROLLRATE_P {:.4f}\n"
       "param set-default MC_ROLLRATE_I {:.4f}\n"
       "param set-default MC_ROLLRATE_D {:.5f}\n"
@@ -257,21 +259,20 @@ Airframe generateAirframe(const aircraft::Aircraft& a, const AirframeOptions& op
       "param set-default MPC_XY_VEL_P_ACC {:.3f}\n"
       "param set-default MPC_XY_P {:.3f}\n"
       "\n",
-      g.rotor_lag_s, g.rate_bandwidth_rad_s, g.roll_pitch_att_p, g.roll_authority_rad_s2, g.pitch_authority_rad_s2, g.yaw_authority_rad_s2,
-      g.roll_rate_p, g.roll_rate_p * kRateI, g.roll_rate_p * kRateD, g.pitch_rate_p, g.pitch_rate_p * kRateI,
-      g.pitch_rate_p * kRateD, g.yaw_rate_p, g.yaw_rate_p * 0.5, g.roll_pitch_att_p, g.roll_pitch_att_p, g.yaw_att_p,
-      g.xy_vel_p_acc, g.xy_p);
+      g.rotor_lag_s, g.rate_bandwidth_rad_s, g.roll_pitch_att_p, g.roll_authority_rad_s2, g.pitch_authority_rad_s2,
+      g.yaw_authority_rad_s2, g.roll_rate_p, g.roll_rate_p * kRateI, g.roll_rate_p * kRateD, g.pitch_rate_p,
+      g.pitch_rate_p * kRateI, g.pitch_rate_p * kRateD, g.yaw_rate_p, g.yaw_rate_p * 0.5, g.roll_pitch_att_p,
+      g.roll_pitch_att_p, g.yaw_att_p, g.xy_vel_p_acc, g.xy_p);
 
-  t +=
-      "# SITL without RC and without a ground station. The pilot input is MAVLink MANUAL_CONTROL from the bridge.\n"
-      "# COM_RC_IN_MODE 1: manual control from MAVLink only (no RC receiver).\n"
-      "param set-default COM_RC_IN_MODE 1\n"
-      "# NAV_RCL_ACT 0: no failsafe action for manual control loss (there is no RC link to lose).\n"
-      "param set-default NAV_RCL_ACT 0\n"
-      "# NAV_DLL_ACT 0: no failsafe action for GCS data link loss (no ground station is attached).\n"
-      "param set-default NAV_DLL_ACT 0\n"
-      "# COM_ARM_WO_GPS 1: allow arming without a GPS fix (no-GPS hold must be flyable).\n"
-      "param set-default COM_ARM_WO_GPS 1\n";
+  t += "# SITL without RC and without a ground station. The pilot input is MAVLink MANUAL_CONTROL from the bridge.\n"
+       "# COM_RC_IN_MODE 1: manual control from MAVLink only (no RC receiver).\n"
+       "param set-default COM_RC_IN_MODE 1\n"
+       "# NAV_RCL_ACT 0: no failsafe action for manual control loss (there is no RC link to lose).\n"
+       "param set-default NAV_RCL_ACT 0\n"
+       "# NAV_DLL_ACT 0: no failsafe action for GCS data link loss (no ground station is attached).\n"
+       "param set-default NAV_DLL_ACT 0\n"
+       "# COM_ARM_WO_GPS 1: allow arming without a GPS fix (no-GPS hold must be flyable).\n"
+       "param set-default COM_ARM_WO_GPS 1\n";
   return out;
 }
 

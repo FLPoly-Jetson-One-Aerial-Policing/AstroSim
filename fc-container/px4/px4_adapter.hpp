@@ -21,11 +21,11 @@ namespace astrosim::px4 {
 
 /// @brief Socket endpoints and session settings of the adapter.
 struct Px4AdapterConfig {
-  std::uint16_t hil_port = 4560;              ///< TCP port to listen on for PX4's HIL connection.
-  std::uint16_t mavlink_local_port = 14540;   ///< UDP port to bind for PX4's onboard instance.
-  std::string mavlink_host = "127.0.0.1";     ///< IPv4 address of PX4's onboard instance.
-  std::uint16_t mavlink_port = 14580;         ///< UDP port PX4's onboard instance listens on.
-  Px4SessionConfig session;                   ///< Protocol settings.
+  std::uint16_t hil_port = 4560;             ///< TCP port to listen on for PX4's HIL connection.
+  std::uint16_t mavlink_local_port = 14540;  ///< UDP port to bind for PX4's onboard instance.
+  std::string mavlink_host = "127.0.0.1";    ///< IPv4 address of PX4's onboard instance.
+  std::uint16_t mavlink_port = 14580;        ///< UDP port PX4's onboard instance listens on.
+  Px4SessionConfig session;                  ///< Protocol settings.
 };
 
 /**
@@ -81,9 +81,9 @@ class Px4Adapter final : public fc::FlightComputer {
   int listen_fd_ = -1;
   int hil_fd_ = -1;
   int udp_fd_ = -1;
-  Bytes hil_pending_;                    ///< Unsent HIL bytes (partial writes).
-  std::uint32_t peer_ip_ = 0;            ///< PX4's onboard instance IPv4 address, network byte order.
-  std::uint16_t peer_port_ = 0;          ///< PX4's onboard instance UDP port, host byte order.
+  Bytes hil_pending_;            ///< Unsent HIL bytes (partial writes).
+  std::uint32_t peer_ip_ = 0;    ///< PX4's onboard instance IPv4 address, network byte order.
+  std::uint16_t peer_port_ = 0;  ///< PX4's onboard instance UDP port, host byte order.
 };
 
 }  // namespace astrosim::px4
