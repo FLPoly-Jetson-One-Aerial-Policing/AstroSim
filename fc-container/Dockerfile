@@ -77,7 +77,7 @@ RUN cmake -S fc-container -B /tmp/build-release -G Ninja -DCMAKE_BUILD_TYPE=Rele
         -DASTROSIM_BUILD_TESTS=OFF -DASTROSIM_BUILD_PX4=ON -DASTROSIM_MAVLINK_DIR=/opt/mavlink \
         -DCMAKE_INSTALL_PREFIX=/opt/stage \
     && cmake --build /tmp/build-release \
-    && cmake --install /tmp/build-release
+    && cmake --install /tmp/build-release --strip
 
 # The runtime needs only the px4 binary (with its module symlinks and alias script) and the processed ROMFS.
 RUN mkdir -p /opt/px4-stage \

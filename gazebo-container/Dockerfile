@@ -53,7 +53,7 @@ RUN cmake -S gazebo-container -B /tmp/build-test -G Ninja -DCMAKE_BUILD_TYPE=Deb
 RUN cmake -S gazebo-container -B /tmp/build-release -G Ninja -DCMAKE_BUILD_TYPE=Release \
         -DASTROSIM_BUILD_GZ=ON -DASTROSIM_BUILD_TESTS=OFF -DCMAKE_INSTALL_PREFIX=/opt/stage \
     && cmake --build /tmp/build-release \
-    && cmake --install /tmp/build-release
+    && cmake --install /tmp/build-release --strip
 
 # ---------------------------------------------------------------------------------------------------------------
 FROM docker.io/library/ubuntu:${UBUNTU_TAG} AS runtime
