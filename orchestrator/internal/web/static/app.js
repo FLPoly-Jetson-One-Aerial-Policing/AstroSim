@@ -37,14 +37,15 @@ const TEXT = {
     pull_failed: "AstroSim couldn't download the simulator. It will try again by itself.",
     pull_cancelled: "The download was cancelled. Press Start to download the simulator and start it.",
   },
-  // Label and look of each component state: [text, icon, tone].
+  // Label and look of each component state: [text, icon, tone]. The icon "spin"
+  // is a turning ring instead of a glyph.
   state: {
     pending: ["Waiting", "○", "idle"],
-    launching: ["Starting", "↻", "warn"],
-    starting: ["Starting", "↻", "warn"],
+    launching: ["Starting", "spin", "warn"],
+    starting: ["Starting", "spin", "warn"],
     ready: ["Ready", "✔", "good"],
     stale: ["Not responding", "▲", "bad"],
-    stopping: ["Stopping", "↻", "warn"],
+    stopping: ["Stopping", "spin", "warn"],
     stopped: ["Stopped", "■", "idle"],
     exited: ["Stopped unexpectedly", "✖", "bad"],
     failed: ["Failed", "✖", "bad"],
@@ -86,6 +87,21 @@ const el = (tag, props = {}, ...children) => {
   node.append(...children);
   return node;
 };
+
+// One turn of a spinner, in milliseconds. It is applied inline, so the CSS
+// needs no copy of it.
+const SPIN_PERIOD_MS = 1200;
+
+// A ring with one coloured arc, turning. The page rebuilds its lists on every
+// status update, which would restart the animation each time; a negative delay
+// puts every new ring at the angle that all rings share at this moment, so it
+// carries on from where the old one was.
+function spinner() {
+  const ring = el("span", { "aria-hidden": "true", class: "spin" });
+  ring.style.animationDuration = `${SPIN_PERIOD_MS}ms`;
+  ring.style.animationDelay = `${-(performance.now() % SPIN_PERIOD_MS)}ms`;
+  return ring;
+}
 
 let snapshot = null;
 let inFlight = false;
@@ -141,8 +157,7 @@ function renderButton(s) {
 
 function stateBadge(state) {
   const [text, icon, tone] = TEXT.state[state] || [state, "?", "idle"];
-  const spin = tone === "warn" && icon === "↻";
-  const iconEl = el("span", { "aria-hidden": "true", class: spin ? "spin" : "" }, icon);
+  const iconEl = icon === "spin" ? spinner() : el("span", { "aria-hidden": "true" }, icon);
   return el("span", { class: `badge ${tone}` }, iconEl, el("span", {}, text));
 }
 
@@ -163,7 +178,7 @@ function downloadBadge(d) {
       el("span", { "aria-hidden": "true" }, "✖"), el("span", {}, TEXT.download.failed));
   }
   return el("span", { class: "badge warn" },
-    el("span", { "aria-hidden": "true", class: "spin" }, "↻"), el("span", {}, TEXT.download.active));
+    spinner(), el("span", {}, TEXT.download.active));
 }
 
 // The progress bar and the line under it; the bar has no value because the

@@ -106,7 +106,12 @@ progress { width: 100%; margin: 0.5rem 0 0; }
 .download { margin: 0.25rem 0 0; color: var(--muted); font-size: 0.9rem; overflow-wrap: anywhere; }
 summary { cursor: pointer; }
 :focus-visible { outline: 3px solid var(--focus); outline-offset: 2px; }
-.spin { display: inline-block; animation: spin 1.2s linear infinite; }
+.spin {
+  display: inline-block; box-sizing: border-box; width: 0.9em; height: 0.9em;
+  border: 2px solid color-mix(in srgb, currentColor 25%, transparent);
+  border-top-color: currentColor; border-radius: 50%;
+  animation: spin 1.2s linear infinite; /* app.js sets the duration and the phase */
+}
 @keyframes spin { to { transform: rotate(360deg); } }
 @media (prefers-reduced-motion: reduce) {
   .spin { animation: none; }
