@@ -10,6 +10,9 @@ CREATE_SUBDIRS         = NO
 
 INPUT                  = README.md \
                          orchestrator/README.md \
+                         docs/releasing.md \
+                         .github/rulesets/README.md \
+                         AGENTS.md \
                          shared \
                          gazebo-container \
                          fc-container
