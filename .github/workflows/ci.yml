@@ -204,6 +204,20 @@ jobs:
           cache-from: type=registry,ref=${{ env.REGISTRY_IMAGE }}:buildcache
           # Only pushes write the cache, so pull requests cannot overwrite it.
           cache-to: ${{ github.event_name == 'push' && format('type=registry,ref={0}:buildcache,mode=max', env.REGISTRY_IMAGE) || '' }}
+      # Push only what already passed the Dockerfile's unit tests, and only the commit tag.
+      # "promote" adds the human-friendly tags after the smoke tests. The layers are in
+      # BuildKit's local cache from the step above, so this does not rebuild anything.
+      - name: Push the commit-tagged image
+        if: github.event_name == 'push'
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          file: ${{ matrix.dockerfile }}
+          push: true
+          tags: ${{ env.REGISTRY_IMAGE }}:${{ needs.meta.outputs.sha_tag }}
+          provenance: false
+          labels: org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+          cache-from: type=registry,ref=${{ env.REGISTRY_IMAGE }}:buildcache
       - name: Save the image for the smoke tests
         run: |
           mkdir -p image
@@ -311,3 +325,148 @@ jobs:
           path: dist
           retention-days: ${{ github.event_name == 'pull_request' && 7 || 90 }}
           if-no-files-found: error
+
+  # The end-user path: a release-flavoured binary on a machine with no images and no login
+  # downloads them from GHCR by itself. It runs against the images just pushed as
+  # sha-<sha7>, before anything is promoted. Until the packages are made public this fails
+  # (anonymous pulls are refused), which is the check working; see docs/releasing.md.
+  smoke-pull:
+    if: github.event_name == 'push'
+    needs: [meta, images]
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      CONTAINER_RUNTIME: podman
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      # A tag build ships a binary pointing at X.Y.Z, which only exists after promotion, so
+      # this job builds its own copy that points at the sha tag it can already download.
+      - name: Build the release-flavoured binary
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          file: orchestrator/build.Dockerfile
+          target: dist
+          outputs: type=local,dest=build/orchestrator-pull
+          cache-from: type=gha,scope=orchestrator
+          build-args: |
+            VERSION=${{ needs.meta.outputs.version }}
+            IMAGE_REPOSITORY=${{ needs.meta.outputs.image_repository }}
+            IMAGE_TAG=${{ needs.meta.outputs.sha_tag }}
+      - name: Make sure this machine looks like a fresh user's
+        run: |
+          podman logout --all || true
+          podman rmi --all --force || true
+          podman images
+      - name: Smoke test with downloads
+        env:
+          ASTROSIM_BIN: build/orchestrator-pull/astrosim-linux-amd64
+          ASTROSIM_SMOKE_PULL: "1"
+        run: |
+          chmod +x "$ASTROSIM_BIN"
+          "$ASTROSIM_BIN" --version
+          orchestrator/scripts/smoke.sh
+
+  # Adds the tags people use to the images that passed every gate, by retagging them in the
+  # registry. Nothing is rebuilt, so what is released is byte for byte what was tested.
+  #   main  ->  main
+  #   tag   ->  X.Y.Z, and for a stable release also X.Y and latest
+  promote:
+    if: github.event_name == 'push' && needs.meta.outputs.promote_tags != ''
+    needs: [meta, package, smoke-pull]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Retag
+        env:
+          REPOSITORY: ${{ needs.meta.outputs.image_repository }}
+          SHA_TAG: ${{ needs.meta.outputs.sha_tag }}
+          PROMOTE_TAGS: ${{ needs.meta.outputs.promote_tags }}
+        run: |
+          read -ra tags <<<"$PROMOTE_TAGS"
+          for name in engine fc; do
+            args=()
+            for tag in "${tags[@]}"; do
+              args+=(--tag "$REPOSITORY/astrosim-$name:$tag")
+            done
+            docker buildx imagetools create "${args[@]}" "$REPOSITORY/astrosim-$name:$SHA_TAG"
+            docker buildx imagetools inspect "$REPOSITORY/astrosim-$name:${tags[0]}"
+          done
+
+  # Refreshes the rolling "nightly" prerelease after every green push to main: the tag moves
+  # to this commit and the assets are replaced. Asset names are stable (astrosim-nightly-*).
+  nightly:
+    if: github.event_name == 'push' && needs.meta.outputs.kind == 'nightly'
+    needs: [meta, package, promote]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    # Two quick pushes to main must not interleave their tag moves.
+    concurrency:
+      group: nightly-release
+      cancel-in-progress: false
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: archives
+          path: dist
+      - name: Publish the nightly prerelease
+        env:
+          VERSION: ${{ needs.meta.outputs.version }}
+        run: |
+          notes="Built from commit $GITHUB_SHA ($VERSION) on $(date -u +%Y-%m-%d). This is the latest development build of main, not a supported release. Releases are listed separately."
+          # Force-move the tag. Tags pushed with GITHUB_TOKEN do not start another workflow run.
+          git push --force origin "$GITHUB_SHA:refs/tags/nightly"
+          if gh release view nightly >/dev/null 2>&1; then
+            gh release edit nightly --title "Nightly" --notes "$notes" --prerelease --latest=false
+          else
+            gh release create nightly --verify-tag --title "Nightly" --notes "$notes" --prerelease --latest=false
+          fi
+          gh release upload nightly dist/* --clobber
+
+  # Publishes a GitHub Release for a vX.Y.Z tag, with generated notes. A release that already
+  # exists (for example one created by hand in the GitHub UI) just gets the assets uploaded.
+  release:
+    if: github.event_name == 'push' && needs.meta.outputs.kind == 'release'
+    needs: [meta, package, promote]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: archives
+          path: dist
+      - name: Publish the release
+        env:
+          TAG: ${{ github.ref_name }}
+          VERSION: ${{ needs.meta.outputs.version }}
+          PRERELEASE: ${{ needs.meta.outputs.prerelease }}
+        run: |
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "Release $TAG already exists; uploading the assets to it."
+            gh release upload "$TAG" dist/* --clobber
+          else
+            flags=()
+            if [ "$PRERELEASE" = true ]; then flags+=(--prerelease); fi
+            gh release create "$TAG" dist/* --verify-tag --generate-notes --title "AstroSim $VERSION" "${flags[@]}"
+          fi
