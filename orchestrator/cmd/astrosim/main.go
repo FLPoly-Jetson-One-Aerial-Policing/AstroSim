@@ -218,7 +218,7 @@ func run(args []string, getenv func(string) string, stdout, stderr io.Writer) in
 		log.Warn("session logs are not being saved to files", "err", rootErr)
 	}
 	if images.Release() {
-		log.Info("release build", "repository", images.Repository, "tag", images.Tag)
+		log.Info("release build: missing images are downloaded when pull is missing", "repository", images.Repository, "tag", images.Tag, "pull", cfg.Pull)
 	}
 	recovered := make(chan struct{})
 	if rec != nil {

@@ -40,6 +40,7 @@ Settings come from four layers; a later one overrides an earlier one: built-in d
 | `--runtime` | `ASTROSIM_ORCH_RUNTIME` | `runtime` | `auto` | `auto` (tries podman, then docker), `podman` or `docker` |
 | `--runtime-path` | `ASTROSIM_ORCH_RUNTIME_PATH` | `runtimePath` | none | Path of the podman or docker executable |
 | `--network` | `ASTROSIM_ORCH_NETWORK` | `network` | `bridge` | `bridge`, or `host` (Linux only) |
+| `--pull` | `ASTROSIM_ORCH_PULL` | `pull` | `missing` | `missing`: download an image that is not present and whose name includes a registry (release builds); `never`: only use images already present |
 | `--publish-addr` | `ASTROSIM_ORCH_PUBLISH_ADDR` | `publishAddr` | `127.0.0.1` | Host address the container ports are published on (bridge mode) |
 | `--no-browser` | `ASTROSIM_ORCH_NO_BROWSER` | `noBrowser` | false | Do not open a browser |
 | `--autostart` | `ASTROSIM_ORCH_AUTOSTART` | `autostart` | false | Start as soon as the first check passes |

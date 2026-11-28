@@ -81,6 +81,34 @@ func TestPrecedence(t *testing.T) {
 	}
 }
 
+func TestPullSetting(t *testing.T) {
+	files := map[string]string{"c.json": `{"pull":"never"}`}
+	tests := []struct {
+		name string
+		args []string
+		env  map[string]string
+		want string
+	}{
+		{"default", nil, nil, PullMissing},
+		{"file", []string{"--config", "c.json"}, nil, PullNever},
+		{"env beats file", []string{"--config", "c.json"}, map[string]string{"ASTROSIM_ORCH_PULL": "missing"}, PullMissing},
+		{"flag beats env and file", []string{"--config", "c.json", "--pull", "missing"},
+			map[string]string{"ASTROSIM_ORCH_PULL": "never"}, PullMissing},
+		{"flag alone", []string{"--pull=never"}, nil, PullNever},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			c, err := load(t, tt.args, tt.env, files)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if c.Pull != tt.want {
+				t.Fatalf("Pull = %q, want %q", c.Pull, tt.want)
+			}
+		})
+	}
+}
+
 func TestLogSettings(t *testing.T) {
 	files := map[string]string{"c.json": `{"logDir":"/file","logKeep":5,"logMaxMB":50,"logFileMaxMB":8,"verbose":true}`}
 	tests := []struct {
@@ -139,23 +167,23 @@ func TestPrintLogDirIsFlagOnly(t *testing.T) {
 
 func TestAllFlagsAndEnv(t *testing.T) {
 	c, err := load(t, []string{"--allow-remote", "--runtime", "docker", "--runtime-path", "/x/docker", "--network", "host",
-		"--publish-addr", "0.0.0.0", "--autostart", "--no-fail", "--version"}, nil, nil)
+		"--pull", "never", "--publish-addr", "0.0.0.0", "--autostart", "--no-fail", "--version"}, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !c.AllowRemote || c.Runtime != "docker" || c.RuntimePath != "/x/docker" || c.Network != "host" ||
-		c.PublishAddr != "0.0.0.0" || !c.Autostart || !c.NoFail || !c.ShowVersion {
+		c.Pull != PullNever || c.PublishAddr != "0.0.0.0" || !c.Autostart || !c.NoFail || !c.ShowVersion {
 		t.Fatalf("flags: %+v", c)
 	}
 	c, err = load(t, nil, map[string]string{
 		"ASTROSIM_ORCH_ALLOW_REMOTE": "1", "ASTROSIM_ORCH_RUNTIME": "podman", "ASTROSIM_ORCH_RUNTIME_PATH": "/p",
-		"ASTROSIM_ORCH_NETWORK": "host", "ASTROSIM_ORCH_PUBLISH_ADDR": "10.0.0.1", "ASTROSIM_ORCH_AUTOSTART": "true",
+		"ASTROSIM_ORCH_NETWORK": "host", "ASTROSIM_ORCH_PULL": "never", "ASTROSIM_ORCH_PUBLISH_ADDR": "10.0.0.1", "ASTROSIM_ORCH_AUTOSTART": "true",
 		"ASTROSIM_ORCH_NO_FAIL": "true"}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !c.AllowRemote || c.Runtime != "podman" || c.RuntimePath != "/p" || c.Network != "host" ||
-		c.PublishAddr != "10.0.0.1" || !c.Autostart || !c.NoFail {
+		c.Pull != PullNever || c.PublishAddr != "10.0.0.1" || !c.Autostart || !c.NoFail {
 		t.Fatalf("env: %+v", c)
 	}
 }
@@ -233,6 +261,9 @@ func TestValidate(t *testing.T) {
 		{"host on windows", func(c *Config) { c.Network = "host" }, "windows", "only supported on Linux"},
 		{"host on darwin", func(c *Config) { c.Network = "host" }, "darwin", "only supported on Linux"},
 		{"unknown network", func(c *Config) { c.Network = "overlay" }, "linux", "bridge or host"},
+		{"pull never", func(c *Config) { c.Pull = PullNever }, "linux", ""},
+		{"pull always", func(c *Config) { c.Pull = "always" }, "linux", "--pull"},
+		{"pull empty", func(c *Config) { c.Pull = "" }, "linux", "--pull"},
 		{"unknown runtime", func(c *Config) { c.Runtime = "lxc" }, "linux", "--runtime"},
 		{"wildcard listen", func(c *Config) { c.Listen = "0.0.0.0:8770" }, "linux", "--allow-remote"},
 		{"empty host listen", func(c *Config) { c.Listen = ":8770" }, "linux", "--allow-remote"},
