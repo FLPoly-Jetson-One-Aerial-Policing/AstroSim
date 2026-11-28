@@ -1,0 +1,14 @@
+# Keeps the third-party actions pinned in .github/workflows/ci.yml current. Dependabot
+# understands the "# vX.Y.Z" comment after a pinned SHA and updates both together.
+#
+# There is nothing else to track: the Go module has no dependencies, and Dependabot cannot
+# resolve the ARG-templated FROM lines in the image Dockerfiles.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    # AGENTS.md prefixes commits with the branch name; Dependabot's branches all start with "dependabot".
+    commit-message:
+      prefix: dependabot
