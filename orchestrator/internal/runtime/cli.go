@@ -259,10 +259,13 @@ func (c *CLI) Stop(ctx context.Context, name string, grace time.Duration) error 
 	return err
 }
 
-// removeBackoff is the wait before each re-check of a container whose
-// `rm -f` failed. The total (3.75 s) bounds how long Remove can stall.
-var removeBackoff = []time.Duration{
-	250 * time.Millisecond, 500 * time.Millisecond, time.Second, 2 * time.Second,
+// removeWaits is the wait before each re-check of a container whose `rm -f`
+// failed. The total (14.5 s) bounds how long Remove polls before its final
+// `rm -f` retry.
+var removeWaits = []time.Duration{
+	250 * time.Millisecond, 250 * time.Millisecond, 500 * time.Millisecond, 500 * time.Millisecond,
+	time.Second, time.Second, time.Second, time.Second, time.Second, time.Second, time.Second,
+	time.Second, time.Second, time.Second, time.Second, time.Second, time.Second,
 }
 
 // sleep waits for d or until ctx ends, returning ctx's error in the latter
@@ -283,33 +286,31 @@ var sleep = func(ctx context.Context, d time.Duration) error {
 // can delete the container and then fail tidying its network namespace
 // ("rootless netns: kill network process: permission denied", typically
 // Ubuntu's AppArmor profile restricting podman's network helper), exiting
-// 125. Podman may finish the removal a moment later, so after a failure
-// Remove inspects and retries `rm -f` on the removeBackoff schedule. If the
-// container never disappears it returns the first error, wrapped.
+// 125. Podman then finishes the removal by itself some seconds later, and
+// running `rm -f` again only hits the same blocked teardown. So after a
+// failure Remove polls Inspect on the removeWaits schedule (about 14.5 s in
+// all) until the container is gone, treating an Inspect error as "unknown"
+// and polling on. If the container is still there it runs `rm -f` once
+// more. It returns the first error, wrapped, if that also fails.
 func (c *CLI) Remove(ctx context.Context, name string) error {
 	_, err := c.do(ctx, "rm", "-f", name)
 	if err == nil || errors.Is(err, ErrNotFound) {
 		return nil
 	}
-	for _, d := range removeBackoff {
+	for _, d := range removeWaits {
 		if serr := sleep(ctx, d); serr != nil {
 			return fmt.Errorf("remove %s: %w (waiting: %w)", name, err, serr)
 		}
-		_, ierr := c.Inspect(ctx, name)
-		if errors.Is(ierr, ErrNotFound) {
+		if _, ierr := c.Inspect(ctx, name); errors.Is(ierr, ErrNotFound) {
 			slog.Warn("container removed although the runtime reported an error",
 				"container", name, "err", err)
 			return nil
 		}
-		if ierr != nil {
-			// Existence is unknown; do not hide the removal failure.
-			continue
-		}
-		if _, rerr := c.do(ctx, "rm", "-f", name); rerr == nil || errors.Is(rerr, ErrNotFound) {
-			slog.Warn("container removed on retry after the runtime reported an error",
-				"container", name, "err", err)
-			return nil
-		}
+	}
+	if _, rerr := c.do(ctx, "rm", "-f", name); rerr == nil || errors.Is(rerr, ErrNotFound) {
+		slog.Warn("container removed on retry after the runtime reported an error",
+			"container", name, "err", err)
+		return nil
 	}
 	return fmt.Errorf("remove %s: %w", name, err)
 }

@@ -248,6 +248,7 @@ func TestInspectErrors(t *testing.T) {
 }
 
 func TestStopRemoveWait(t *testing.T) {
+	fakeSleep(t, 0, nil)
 	sc := &scripted{results: map[string]Result{
 		"wait ok":      {Stdout: "143\n"},
 		"wait garbage": {Stdout: "x"},
@@ -336,6 +337,7 @@ func TestRemoveGoneAfterFailure(t *testing.T) {
 	notFound := Result{ExitCode: 125, Stderr: "Error: no such object: \"c\""}
 	running := Result{Stdout: fixture(t, "podman_running.json")}
 	unknown := Result{ExitCode: 1, Stderr: "cannot connect to the engine"}
+	full := len(removeWaits)
 
 	tests := []struct {
 		name      string
@@ -346,12 +348,15 @@ func TestRemoveGoneAfterFailure(t *testing.T) {
 	}{
 		{"rm succeeds", map[string][]Result{rm: {{}}}, false, 0, 1},
 		{"rm reports not found", map[string][]Result{rm: {notFound}}, false, 0, 1},
-		{"gone on the first inspect", map[string][]Result{rm: {netns}, ins: {notFound}}, false, 1, 1},
-		{"gone after three retries", map[string][]Result{rm: {netns}, ins: {running, running, notFound}}, false, 3, 3},
-		{"rm retry reports not found", map[string][]Result{rm: {netns, notFound}, ins: {running}}, false, 1, 2},
-		{"rm retry succeeds", map[string][]Result{rm: {netns, {}}, ins: {running}}, false, 1, 2},
-		{"never gone", map[string][]Result{rm: {netns}, ins: {running}}, true, 4, 5},
-		{"existence unknown", map[string][]Result{rm: {netns}, ins: {unknown}}, true, 4, 1},
+		{"gone on the first poll", map[string][]Result{rm: {netns}, ins: {notFound}}, false, 1, 1},
+		{"gone after five polls, no rm retry", map[string][]Result{
+			rm: {netns}, ins: {running, running, running, running, notFound},
+		}, false, 5, 1},
+		{"still there, final rm succeeds", map[string][]Result{rm: {netns, {}}, ins: {running}}, false, full, 2},
+		{"still there, final rm reports not found", map[string][]Result{rm: {netns, notFound}, ins: {running}}, false, full, 2},
+		{"never gone", map[string][]Result{rm: {netns}, ins: {running}}, true, full, 2},
+		{"inspect unknown, then gone", map[string][]Result{rm: {netns}, ins: {unknown, unknown, notFound}}, false, 3, 1},
+		{"inspect always unknown", map[string][]Result{rm: {netns}, ins: {unknown}}, true, full, 2},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -368,7 +373,7 @@ func TestRemoveGoneAfterFailure(t *testing.T) {
 				}
 			}
 			if len(*waits) != tt.wantWaits {
-				t.Errorf("waits = %v, want %d", *waits, tt.wantWaits)
+				t.Errorf("waits = %d, want %d", len(*waits), tt.wantWaits)
 			}
 			if n := sc.count(rm); n != tt.wantRm {
 				t.Errorf("rm calls = %d, want %d", n, tt.wantRm)
@@ -377,19 +382,19 @@ func TestRemoveGoneAfterFailure(t *testing.T) {
 	}
 }
 
-// TestRemoveBackoffBounded checks the wait schedule stays under 5 s.
-func TestRemoveBackoffBounded(t *testing.T) {
+// TestRemoveWaitsBounded checks the poll schedule totals between 10 s and 16 s.
+func TestRemoveWaitsBounded(t *testing.T) {
 	var total time.Duration
-	for _, d := range removeBackoff {
+	for _, d := range removeWaits {
 		total += d
 	}
-	if total >= 5*time.Second {
-		t.Errorf("total backoff %v, want < 5s", total)
+	if total < 10*time.Second || total > 16*time.Second {
+		t.Errorf("total wait %v, want within [10s, 16s]", total)
 	}
 }
 
 // TestRemoveContextCancelled checks a context ending during the wait stops
-// the retries and still reports the original failure.
+// the polling, issues no further rm and reports the original failure.
 func TestRemoveContextCancelled(t *testing.T) {
 	fakeSleep(t, 2, context.Canceled)
 	netns := Result{ExitCode: 125, Stderr: fixture(t, "podman_rm_netns_error.log")}
@@ -407,6 +412,9 @@ func TestRemoveContextCancelled(t *testing.T) {
 	}
 	if n := sc.count("inspect --format {{json .State}} c"); n != 1 {
 		t.Errorf("inspect calls = %d, want 1", n)
+	}
+	if n := sc.count("rm -f c"); n != 1 {
+		t.Errorf("rm calls = %d, want 1", n)
 	}
 }
 

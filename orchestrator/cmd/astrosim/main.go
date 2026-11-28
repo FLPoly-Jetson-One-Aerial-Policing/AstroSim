@@ -245,9 +245,13 @@ func run(args []string, getenv func(string) string, stdout, stderr io.Writer) in
 		log.Info("container runtime found", "runtime", info.Name, "version", info.Version, "path", info.Path)
 		// Only while holding the lock is it safe to remove every managed
 		// container: they can only be leftovers of a crashed run.
-		if _, err := session.CleanupStale(pingCtx, rt); err != nil {
+		// Removing a leftover can poll for about 15 s per container, so it gets its own budget
+		// rather than what is left of the ping's.
+		cleanCtx, cancelClean := context.WithTimeout(context.Background(), cleanupTimeout)
+		if _, err := session.CleanupStale(cleanCtx, rt); err != nil {
 			log.Warn("could not remove leftover containers", "err", err)
 		}
+		cancelClean()
 	}
 	cancelPing()
 

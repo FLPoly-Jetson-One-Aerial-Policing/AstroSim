@@ -519,9 +519,11 @@ add one, touch only these files:
   machine; whether the published UDP ports reach the host with acceptable latency is unknown.
 - **Rootless Podman can fail removing a container's network.** On Ubuntu, AppArmor can stop rootless Podman from
   signalling its network helper, so `podman rm -f` and `podman stop` exit 125 with `rootless netns: kill network
-  process: permission denied`, although the container is removed a moment later. The orchestrator logs a warning
-  and re-checks for up to about 4 s, retrying `rm -f`, before reporting a removal failure. The cause is inferred from
-  the error text and has not been confirmed against the AppArmor profile.
+  process: permission denied`, although the container is removed a few seconds later, by Podman itself. The
+  orchestrator logs a warning and polls for up to about 15 s for the container to go, then tries `rm -f` once more,
+  before reporting a removal failure. On affected systems `--cleanup`, `--prune`, the removal before a launch and
+  Stop can therefore each take that long per container. The cause is inferred from the error text and has not been
+  confirmed against the AppArmor profile.
 - **`lock_other.go` is not crash-safe.** On platforms that are neither Unix nor Windows the lock is a file created
   exclusively; after a crash it must be deleted by hand.
 - **Probes use subscriber slots.** The engine and the flight computer each accept 8 subscribers. The orchestrator's
