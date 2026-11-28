@@ -1,0 +1,1 @@
+Error response from daemon: Get "https://registry.invalid/v2/": dial tcp: lookup registry.invalid on 127.0.0.53:53: no such host

@@ -24,6 +24,15 @@ var (
 	// ErrNotRunning means a runtime executable exists but its engine or
 	// daemon does not answer (for example the docker daemon is stopped).
 	ErrNotRunning = errors.New("runtime: container runtime is not running")
+	// ErrDenied means a registry refused access to an image: it needs a
+	// login, or the repository does not exist (registries often answer a
+	// missing repository the same way).
+	ErrDenied = errors.New("runtime: registry refused access")
+	// ErrNoSpace means the disk filled up while an image was downloaded.
+	ErrNoSpace = errors.New("runtime: no space left on device")
+	// ErrUnreachable means the registry could not be contacted: no network,
+	// a DNS failure, a refused connection or a timeout.
+	ErrUnreachable = errors.New("runtime: registry unreachable")
 )
 
 // Info describes a detected, reachable runtime.
@@ -117,6 +126,14 @@ type Runtime interface {
 	// ImageExists reports whether the image is present locally. A missing
 	// image is (false, nil); a daemon error is a non-nil error.
 	ImageExists(ctx context.Context, image string) (bool, error)
+	// Pull downloads image from its registry, writing the runtime's
+	// progress output (both of its streams) to progress as it arrives;
+	// progress may be nil and may be written from several goroutines.
+	// Cancelling ctx stops the download. A failure matches ErrNotFound (no
+	// such image or tag, or no build for this platform), ErrDenied,
+	// ErrNoSpace or ErrUnreachable when the runtime's error text is
+	// recognised, and otherwise is a *CommandError.
+	Pull(ctx context.Context, image string, progress io.Writer) error
 	// EnsureNetwork creates the user network, carrying labels, if it does
 	// not exist. Labels are applied only on creation; an existing network
 	// is left as it is.

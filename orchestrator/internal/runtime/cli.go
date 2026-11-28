@@ -441,3 +441,75 @@ func (c *CLI) FollowLogs(ctx context.Context, name string, opts LogOptions, stdo
 	}
 	return ce
 }
+
+// syncWriter serialises writes to w, so that the two output streams of one
+// command can share a destination.
+type syncWriter struct {
+	mu sync.Mutex
+	w  io.Writer
+}
+
+func (s *syncWriter) Write(p []byte) (int, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.w.Write(p)
+}
+
+// Pull implements Runtime. Both podman and docker accept `pull <image>`.
+// Podman writes its progress to stderr and docker to stdout, so both streams
+// go to progress; stderr is also kept (by tailWriter) to explain a failure.
+func (c *CLI) Pull(ctx context.Context, image string, progress io.Writer) error {
+	s, ok := c.cmd.(Streamer)
+	if !ok {
+		return fmt.Errorf("runtime: %T cannot stream command output", c.cmd)
+	}
+	if progress == nil {
+		progress = io.Discard
+	}
+	out := &syncWriter{w: progress}
+	tw := &tailWriter{w: out}
+	args := []string{"pull", image}
+	code, err := s.Stream(ctx, out, tw, c.bin, args...)
+	if err != nil {
+		return err
+	}
+	if code == 0 {
+		return nil
+	}
+	return classifyPull(&CommandError{Args: args, ExitCode: code, Stderr: tw.text()})
+}
+
+// pullClasses maps fragments of a failed pull's error text to the sentinel
+// error they mean. The first class with a matching fragment wins, so the
+// order matters: a DNS failure says "no such host", which must not be
+// mistaken for a missing image (isNotFoundText would do exactly that).
+var pullClasses = []struct {
+	err       error
+	fragments []string
+}{
+	{ErrNoSpace, []string{"no space left on device"}},
+	{ErrDenied, []string{"unauthorized", "denied", "authentication required", "403 forbidden"}},
+	{ErrUnreachable, []string{
+		"dial tcp", "no such host", "i/o timeout", "connection refused", "network is unreachable",
+		"tls handshake timeout", "temporary failure in name resolution", "connection reset",
+	}},
+	{ErrNotFound, []string{
+		"manifest unknown", "name unknown", "not found", "no matching manifest",
+		"no image found in manifest list", "no image found in image index",
+	}},
+}
+
+// classifyPull wraps ce with the sentinel error its text indicates (see
+// pullClasses), or returns ce itself when the text is not recognised. The
+// result matches both the sentinel (errors.Is) and *CommandError (errors.As).
+func classifyPull(ce *CommandError) error {
+	text := strings.ToLower(ce.Stderr)
+	for _, class := range pullClasses {
+		for _, f := range class.fragments {
+			if strings.Contains(text, f) {
+				return fmt.Errorf("%w: %w", class.err, ce)
+			}
+		}
+	}
+	return ce
+}

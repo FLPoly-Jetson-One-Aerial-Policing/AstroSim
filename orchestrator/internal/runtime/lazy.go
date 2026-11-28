@@ -78,6 +78,15 @@ func (l *Lazy) ImageExists(ctx context.Context, image string) (bool, error) {
 	return rt.ImageExists(ctx, image)
 }
 
+// Pull implements Runtime.
+func (l *Lazy) Pull(ctx context.Context, image string, progress io.Writer) error {
+	rt, err := l.inner()
+	if rt == nil {
+		return err
+	}
+	return rt.Pull(ctx, image, progress)
+}
+
 // EnsureNetwork implements Runtime.
 func (l *Lazy) EnsureNetwork(ctx context.Context, name string, labels map[string]string) error {
 	rt, err := l.inner()

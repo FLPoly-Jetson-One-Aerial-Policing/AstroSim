@@ -107,10 +107,16 @@ type Runtime struct {
 	// FollowErr, if set, is consulted by FollowLogs before streaming; a
 	// non-nil result is returned as the error.
 	FollowErr func(name string) error
+	// PullHook, if set, runs inside Pull after the call is recorded. It may
+	// block (honouring ctx), write progress lines and return an error; on a
+	// nil result the image is marked present. Nil uses a default that writes
+	// "pulled <image>" and succeeds.
+	PullHook func(ctx context.Context, image string, progress io.Writer) error
 	// Now supplies timestamps; nil uses time.Now.
-	Now  func() time.Time
-	runs []runtime.RunSpec
-	ops  []string
+	Now   func() time.Time
+	runs  []runtime.RunSpec
+	ops   []string
+	pulls []string
 }
 
 var _ runtime.Runtime = (*Runtime)(nil)
@@ -279,6 +285,39 @@ func (r *Runtime) ImageExists(_ context.Context, image string) (bool, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	return r.images[image], nil
+}
+
+// Pull implements runtime.Runtime. It records "pull <image>" in Ops and the
+// image in Pulls, then runs PullHook (or the default, which writes
+// "pulled <image>" to progress). When that succeeds the image becomes
+// present. A nil progress is allowed.
+func (r *Runtime) Pull(ctx context.Context, image string, progress io.Writer) error {
+	r.mu.Lock()
+	r.ops = append(r.ops, "pull "+image)
+	r.pulls = append(r.pulls, image)
+	hook := r.PullHook
+	r.mu.Unlock()
+	if progress == nil {
+		progress = io.Discard
+	}
+	var err error
+	if hook != nil {
+		err = hook(ctx, image, progress)
+	} else {
+		_, err = io.WriteString(progress, "pulled "+image+"\n")
+	}
+	if err != nil {
+		return err
+	}
+	r.SetImage(image, true)
+	return nil
+}
+
+// Pulls returns every image passed to Pull, in order.
+func (r *Runtime) Pulls() []string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return append([]string(nil), r.pulls...)
 }
 
 // EnsureNetwork implements runtime.Runtime.

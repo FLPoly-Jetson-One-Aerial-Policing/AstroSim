@@ -477,3 +477,103 @@ func TestFollowLogsErrors(t *testing.T) {
 		}
 	})
 }
+
+// TestPullArgs checks the command line and that both output streams reach
+// the progress writer, whichever one a dialect uses for its progress.
+func TestPullArgs(t *testing.T) {
+	for _, d := range []Dialect{Podman, Docker} {
+		t.Run(d.Name, func(t *testing.T) {
+			st := &streamer{out: "Pulling fs layer\n", err: "Copying blob x\n"}
+			var progress strings.Builder
+			if err := NewCLI("rt", d, st).Pull(context.Background(), "ghcr.io/o/x:1", &progress); err != nil {
+				t.Fatal(err)
+			}
+			if got, want := st.last(), []string{"pull", "ghcr.io/o/x:1"}; !reflect.DeepEqual(got, want) {
+				t.Errorf("args = %v, want %v", got, want)
+			}
+			if got := progress.String(); !strings.Contains(got, "Pulling fs layer\n") || !strings.Contains(got, "Copying blob x\n") {
+				t.Errorf("progress = %q", got)
+			}
+		})
+	}
+	t.Run("nil progress", func(t *testing.T) {
+		st := &streamer{out: "o\n", err: "e\n"}
+		if err := NewCLI("rt", Podman, st).Pull(context.Background(), "ghcr.io/o/x:1", nil); err != nil {
+			t.Fatal(err)
+		}
+	})
+}
+
+// TestPullErrors classifies real podman failures (captured by running podman
+// 5.8 against ghcr.io, docker.io and an .invalid host) and docker failures
+// (hand-written, as docker was not available; see the README). The
+// podman_pull_no_space fixture is hand-written too: a full disk could not be
+// provoked safely. The fixtures end in .log because the repository ignores .txt.
+func TestPullErrors(t *testing.T) {
+	for _, tc := range []struct {
+		fixture string
+		want    error
+	}{
+		{"podman_pull_manifest_unknown.log", ErrNotFound},
+		{"podman_pull_no_platform.log", ErrNotFound},
+		{"podman_pull_no_such_host.log", ErrUnreachable},
+		{"podman_pull_forbidden.log", ErrDenied},
+		{"podman_pull_denied.log", ErrDenied},
+		{"podman_pull_no_space.log", ErrNoSpace},
+		{"docker_pull_manifest_unknown.log", ErrNotFound},
+		{"docker_pull_no_platform.log", ErrNotFound},
+		{"docker_pull_no_such_host.log", ErrUnreachable},
+		{"docker_pull_unauthorized.log", ErrDenied},
+		{"docker_pull_no_space.log", ErrNoSpace},
+	} {
+		t.Run(tc.fixture, func(t *testing.T) {
+			dialect := Podman
+			if strings.HasPrefix(tc.fixture, "docker") {
+				dialect = Docker
+			}
+			st := &streamer{code: 125, err: fixture(t, tc.fixture)}
+			err := NewCLI("rt", dialect, st).Pull(context.Background(), "ghcr.io/o/x:1", io.Discard)
+			if !errors.Is(err, tc.want) {
+				t.Fatalf("err = %v, want %v", err, tc.want)
+			}
+			for _, other := range []error{ErrNotFound, ErrDenied, ErrNoSpace, ErrUnreachable} {
+				if other != tc.want && errors.Is(err, other) {
+					t.Errorf("err also matches %v", other)
+				}
+			}
+			var ce *CommandError
+			if !errors.As(err, &ce) || ce.ExitCode != 125 || ce.Stderr == "" {
+				t.Errorf("no usable CommandError in %v", err)
+			}
+		})
+	}
+}
+
+func TestPullOtherErrors(t *testing.T) {
+	ctx := context.Background()
+	t.Run("unrecognised", func(t *testing.T) {
+		st := &streamer{code: 1, err: "something odd\n"}
+		err := NewCLI("rt", Podman, st).Pull(ctx, "ghcr.io/o/x:1", nil)
+		var ce *CommandError
+		if !errors.As(err, &ce) || ce.Stderr != "something odd" {
+			t.Fatalf("err = %v", err)
+		}
+		for _, s := range []error{ErrNotFound, ErrDenied, ErrNoSpace, ErrUnreachable} {
+			if errors.Is(err, s) {
+				t.Errorf("err matches %v", s)
+			}
+		}
+	})
+	t.Run("run error", func(t *testing.T) {
+		want := errors.New("cancelled")
+		err := NewCLI("rt", Podman, &streamer{runErr: want}).Pull(ctx, "ghcr.io/o/x:1", nil)
+		if !errors.Is(err, want) {
+			t.Fatalf("err = %v", err)
+		}
+	})
+	t.Run("not a streamer", func(t *testing.T) {
+		if err := NewCLI("rt", Podman, &scripted{}).Pull(ctx, "ghcr.io/o/x:1", nil); err == nil {
+			t.Fatal("want an error")
+		}
+	})
+}
