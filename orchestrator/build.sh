@@ -2,7 +2,7 @@
 # Builds (or just tests) the AstroSim orchestrator inside a container.
 #
 #   orchestrator/build.sh          build all binaries into build/orchestrator/
-#   orchestrator/build.sh --test   only run gofmt, vet and the unit tests
+#   orchestrator/build.sh --test   only run gofmt, vet, staticcheck and the unit tests
 #
 # Set CONTAINER_RUNTIME=docker to use docker instead of podman. The binary for
 # this machine is also copied to build/orchestrator/astrosim, which the

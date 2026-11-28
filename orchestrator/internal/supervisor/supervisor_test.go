@@ -429,7 +429,7 @@ func TestRecoveryAndBackoff(t *testing.T) {
 		gen := lastTimerGen(acts, TimerBackoff, "group:gb")
 		// Backoff fires: relaunch in dependency order, with new generations.
 		bg := r.comp("b").Gen + 1
-		r.want(r.timer(TimerBackoff, "group:gb", gen), fmt.Sprintf("launch:b#%d", bg), fmt.Sprintf("timer:ready:b@30s"))
+		r.want(r.timer(TimerBackoff, "group:gb", gen), fmt.Sprintf("launch:b#%d", bg), "timer:ready:b@30s")
 		r.phase(PhaseStarting)
 		r.want(r.step(r.ev(Launched, "b")))
 		cg := r.comp("c").Gen + 1

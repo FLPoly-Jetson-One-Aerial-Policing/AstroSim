@@ -19,10 +19,14 @@ COPY shared/proto/testdata /src/shared/proto/testdata
 COPY orchestrator/ /src/orchestrator/
 WORKDIR /src/orchestrator
 
-# Fails the build on formatting drift, vet findings or test failures.
+# Fails the build on formatting drift, vet or staticcheck findings, or test
+# failures. staticcheck is pinned so a new release cannot break the build.
 FROM base AS test
+ARG STATICCHECK_VERSION=2026.1
+RUN go install honnef.co/go/tools/cmd/staticcheck@${STATICCHECK_VERSION}
 RUN test -z "$(gofmt -l .)" || { echo "gofmt needed on:"; gofmt -l .; exit 1; }
 RUN go vet ./...
+RUN /go/bin/staticcheck ./...
 RUN go test -race -count=1 ./...
 
 # Cross-compiles every supported target. CGO is disabled so the binaries are
