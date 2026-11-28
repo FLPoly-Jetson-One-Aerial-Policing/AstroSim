@@ -1,0 +1,313 @@
+# Build, test and package AstroSim. See docs/releasing.md for what each trigger produces.
+#
+#   pull request   build and test everything, package dev archives; publish nothing
+#   push to main   the same, then publish the images and the rolling "nightly" prerelease
+#   tag vX.Y.Z     the same, then publish the images and a GitHub Release
+#
+# One workflow runs both release paths, so a release is gated by exactly the same checks as
+# every pull request. Third-party actions are pinned by commit SHA (Dependabot keeps them
+# current); the version in the comment is the one the SHA belongs to.
+name: CI
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+
+# Jobs get a read-only token and ask for more only where they need it.
+permissions:
+  contents: read
+
+# A new push to a pull request cancels the superseded run. Runs for main and for tags are
+# never cancelled (their group is unique), because a release must not be lost to a later push.
+concurrency:
+  group: ci-${{ github.event_name == 'pull_request' && github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  # What is being built: kind, version, image tag and archive label (tools/ci/version.sh).
+  # Fails early for a "v*" tag that is not SemVer.
+  meta:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      kind: ${{ steps.version.outputs.kind }}
+      version: ${{ steps.version.outputs.version }}
+      image_tag: ${{ steps.version.outputs.image_tag }}
+      archive_label: ${{ steps.version.outputs.archive_label }}
+      prerelease: ${{ steps.version.outputs.prerelease }}
+      sha7: ${{ steps.version.outputs.sha7 }}
+      sha_tag: ${{ steps.version.outputs.sha_tag }}
+      promote_tags: ${{ steps.version.outputs.promote_tags }}
+      image_repository: ${{ steps.version.outputs.image_repository }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - id: version
+        env:
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: tools/ci/version.sh
+      - name: Summarise
+        env:
+          KIND: ${{ steps.version.outputs.kind }}
+          VERSION: ${{ steps.version.outputs.version }}
+          IMAGE_TAG: ${{ steps.version.outputs.image_tag }}
+        run: |
+          {
+            echo "### Building \`$VERSION\` ($KIND)"
+            echo "Image tag in the binary: \`${IMAGE_TAG:-none (dev build)}\`"
+          } >>"$GITHUB_STEP_SUMMARY"
+
+  # clang-format, shellcheck, hadolint, actionlint and doxygen, in the same pinned container
+  # that developers run with tools/lint.sh.
+  lint:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Lint
+        env:
+          CONTAINER_RUNTIME: docker
+        run: bash tools/lint.sh
+
+  # gofmt, vet, staticcheck and the Linux race-detector tests, then the cross-compiled binaries.
+  # Pull requests get a dev binary (no registry, never downloads images). Pushes get a
+  # release-flavoured binary that embeds the image repository and tag; they also build a dev
+  # binary for the smoke test, which runs against the locally built images.
+  orchestrator:
+    needs: meta
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - name: Test
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          file: orchestrator/build.Dockerfile
+          target: test
+          cache-from: type=gha,scope=orchestrator
+          cache-to: type=gha,scope=orchestrator,mode=max
+      - name: Build binaries
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          file: orchestrator/build.Dockerfile
+          target: dist
+          outputs: type=local,dest=build/orchestrator
+          cache-from: type=gha,scope=orchestrator
+          # Both image arguments are empty on pull requests, which makes a dev build.
+          build-args: |
+            VERSION=${{ needs.meta.outputs.version }}
+            IMAGE_REPOSITORY=${{ needs.meta.outputs.image_tag != '' && needs.meta.outputs.image_repository || '' }}
+            IMAGE_TAG=${{ needs.meta.outputs.image_tag }}
+      - name: Build dev binaries for the smoke test
+        if: needs.meta.outputs.image_tag != ''
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          file: orchestrator/build.Dockerfile
+          target: dist
+          outputs: type=local,dest=build/orchestrator-dev
+          cache-from: type=gha,scope=orchestrator
+          build-args: |
+            VERSION=${{ needs.meta.outputs.version }}
+            IMAGE_REPOSITORY=
+            IMAGE_TAG=
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: orchestrator
+          path: build/orchestrator
+          retention-days: 7
+          if-no-files-found: error
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: needs.meta.outputs.image_tag != ''
+        with:
+          name: orchestrator-dev
+          path: build/orchestrator-dev
+          retention-days: 7
+          if-no-files-found: error
+
+  # The orchestrator's Windows-specific code (locking, process and signal handling) only
+  # runs for real here. The Linux job above cannot exercise it.
+  orchestrator-windows:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        shell: bash
+        working-directory: orchestrator
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
+        with:
+          go-version-file: orchestrator/go.mod
+          # The module has no dependencies, so there is no go.sum to key a cache on.
+          cache: false
+      - run: go vet ./...
+      - run: go test -count=1 ./...
+
+  # Builds each image. The C++ unit tests (under ASan and UBSan) run inside the Dockerfile's
+  # build stage, so a failing test fails this job, exactly as it does locally. The built
+  # image is saved for the smoke jobs. The check names are "images (engine)" and "images (fc)".
+  images:
+    needs: meta
+    runs-on: ubuntu-latest
+    # The first PX4 build is long. Later runs reuse the registry cache.
+    timeout-minutes: 180
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      fail-fast: false
+      matrix:
+        name: [engine, fc]
+        include:
+          - name: engine
+            dockerfile: gazebo-container/Dockerfile
+          - name: fc
+            dockerfile: fc-container/Dockerfile
+    env:
+      IMAGE: astrosim-${{ matrix.name }}
+      REGISTRY_IMAGE: ${{ needs.meta.outputs.image_repository }}/astrosim-${{ matrix.name }}
+    steps:
+      # The PX4 build stage needs about 3.4 GB on top of the base images. Remove what the
+      # runner has preinstalled and this build does not use.
+      - name: Free disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc
+          docker image prune --all --force
+          df -h /
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      # Logging in is only needed to write the registry cache and the images, so only pushes do it.
+      # Reading the cache works anonymously once the packages are public.
+      - name: Log in to GHCR
+        if: github.event_name == 'push'
+        uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          file: ${{ matrix.dockerfile }}
+          load: true
+          tags: ${{ env.IMAGE }}:latest
+          provenance: false
+          labels: org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+          cache-from: type=registry,ref=${{ env.REGISTRY_IMAGE }}:buildcache
+          # Only pushes write the cache, so pull requests cannot overwrite it.
+          cache-to: ${{ github.event_name == 'push' && format('type=registry,ref={0}:buildcache,mode=max', env.REGISTRY_IMAGE) || '' }}
+      - name: Save the image for the smoke tests
+        run: |
+          mkdir -p image
+          docker save "$IMAGE:latest" | zstd -T0 -3 >"image/$IMAGE.tar.zst"
+          ls -lh image
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: image-${{ matrix.name }}
+          path: image
+          retention-days: 1
+          # Already compressed.
+          compression-level: 0
+          if-no-files-found: error
+
+  # Runs the real orchestrator against the real images with podman, the path developers use.
+  smoke:
+    needs: [meta, orchestrator, images]
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      CONTAINER_RUNTIME: podman
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      # Pushes build both flavours; the smoke test needs the dev one, which uses the local images.
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: ${{ needs.meta.outputs.image_tag != '' && 'orchestrator-dev' || 'orchestrator' }}
+          path: build/orchestrator
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: image-*
+          path: images
+          merge-multiple: true
+      - name: Load the images into podman
+        run: |
+          # A docker-saved image loads under a docker.io name; podman only finds the short
+          # names "astrosim-engine" and "astrosim-fc" under localhost/, so tag them explicitly.
+          for name in engine fc; do
+            loaded="$(zstd -dc "images/astrosim-$name.tar.zst" | podman load | sed -n 's/^Loaded image[^:]*: //p' | tail -n 1)"
+            [ -n "$loaded" ] || { echo "podman load printed no image name for $name" >&2; exit 1; }
+            podman tag "$loaded" "localhost/astrosim-$name:latest"
+          done
+          podman images
+      - name: Smoke test
+        env:
+          ASTROSIM_BIN: build/orchestrator/astrosim-linux-amd64
+        run: |
+          # Artifacts do not keep the executable bit.
+          chmod +x "$ASTROSIM_BIN"
+          orchestrator/scripts/smoke.sh
+
+  # The same test through the docker CLI. Docker has not been tried against a live daemon
+  # before, so this is informational for now: it may fail without failing the run, and it is
+  # not a requirement for packaging. Make it required (and add it to "package") once it is green.
+  smoke-docker:
+    needs: [meta, orchestrator, images]
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    continue-on-error: true
+    env:
+      CONTAINER_RUNTIME: docker
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: ${{ needs.meta.outputs.image_tag != '' && 'orchestrator-dev' || 'orchestrator' }}
+          path: build/orchestrator
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: image-*
+          path: images
+          merge-multiple: true
+      - name: Load the images into docker
+        run: |
+          for name in engine fc; do
+            zstd -dc "images/astrosim-$name.tar.zst" | docker load
+          done
+          docker images
+      - name: Smoke test
+        env:
+          ASTROSIM_BIN: build/orchestrator/astrosim-linux-amd64
+        run: |
+          chmod +x "$ASTROSIM_BIN"
+          orchestrator/scripts/smoke.sh
+
+  # The downloadable archives, once every gate that applies to pull requests has passed
+  # (smoke-docker is deliberately not one of them yet).
+  package:
+    needs: [meta, lint, orchestrator, orchestrator-windows, images, smoke]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: orchestrator
+          path: build/orchestrator
+      - name: Package
+        env:
+          LABEL: ${{ needs.meta.outputs.archive_label }}
+        run: tools/package.sh "$LABEL" build/orchestrator dist
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: archives
+          path: dist
+          retention-days: ${{ github.event_name == 'pull_request' && 7 || 90 }}
+          if-no-files-found: error
