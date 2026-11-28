@@ -32,7 +32,8 @@
 # is, and expect it to download the images in full (the engine is about 1.6 GB).
 #
 # Environment:
-#   CONTAINER_RUNTIME       podman (default) or docker
+#   CONTAINER_RUNTIME       podman (default) or docker; the orchestrator is told
+#                           to use the same one
 #   ASTROSIM_ORCH_LISTEN    dashboard address (default 127.0.0.1:8770)
 #   ASTROSIM_BIN            orchestrator binary (default build/orchestrator/astrosim)
 #   ASTROSIM_SMOKE_PULL     set to 1 to test downloading the images first
@@ -53,6 +54,9 @@ base="http://$listen"
 log="$(mktemp "${TMPDIR:-/tmp}/astrosim-smoke.XXXXXX")"
 logroot="$(mktemp -d "${TMPDIR:-/tmp}/astrosim-smoke-logs.XXXXXX")"
 export ASTROSIM_ORCH_LOG_DIR="$logroot"
+# The orchestrator auto-detects podman first, so without this it would look for
+# the images in podman while the script checks (and CI loads them into) docker.
+export ASTROSIM_ORCH_RUNTIME="$runtime"
 pid=""
 spid=""
 failures=0
